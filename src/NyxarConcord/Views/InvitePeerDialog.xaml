@@ -1,0 +1,81 @@
+<Window x:Class="NyxarConcord.Views.InvitePeerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Convidar" Height="500" Width="400"
+        Background="{StaticResource Bg.Darkest}"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True">
+    <Border CornerRadius="16" Background="{StaticResource Bg.Dark}" BorderBrush="{StaticResource Border.Soft}"
+            BorderThickness="1">
+        <Grid Margin="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="24,22,24,6">
+                <TextBlock Text="Convidar para o servidor" FontSize="18" FontWeight="Bold"
+                           Foreground="{StaticResource Text.Primary}" />
+                <TextBlock Text="Busque por @handle ou nome" FontSize="12"
+                           Foreground="{StaticResource Text.Muted}" Margin="0,2,0,0" />
+            </StackPanel>
+
+            <TextBox x:Name="SearchBox" Grid.Row="1" Margin="24,6,24,10" Style="{StaticResource ChatTextBox}"
+                     TextChanged="Search_Changed" />
+
+            <ListBox x:Name="PeerList" Grid.Row="2" Margin="12,0" Background="Transparent" BorderThickness="0">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="8,6" />
+                        <Setter Property="Margin" Value="4,1" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="b" Background="Transparent" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="{StaticResource Accent}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="34" Height="34" CornerRadius="17" Background="{StaticResource Brand.Gradient}">
+                                <TextBlock Text="{Binding Initials}" Foreground="White" FontWeight="SemiBold" FontSize="12"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource Text.Primary}"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Handle}" Foreground="{StaticResource Text.Muted}" FontSize="10" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Border Grid.Row="3" Padding="24,16">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Margin="0,0,10,0" Click="Cancel_Click" />
+                    <Button Content="Convidar" Style="{StaticResource AccentButton}" Click="Invite_Click" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

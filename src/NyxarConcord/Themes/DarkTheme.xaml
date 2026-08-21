@@ -1,0 +1,439 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:conv="clr-namespace:NyxarConcord.Views">
+
+    <!-- Conversores -->
+    <conv:PathToImageConverter x:Key="PathToImage" />
+    <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis" />
+    <conv:IconKeyToGeometryConverter x:Key="IconGeom" />
+    <conv:IconKeyToBrushConverter x:Key="IconBrush" />
+    <conv:NullToVisibleConverter x:Key="NullToVis" />
+
+    <!-- ============================================================
+         Paleta — azul da logo (Nyxar), moderno, elegante, minimalista
+         ============================================================ -->
+    <Color x:Key="C.Accent">#29A3FF</Color>
+    <Color x:Key="C.Accent2">#1E7BE8</Color>
+
+    <SolidColorBrush x:Key="Bg.Darkest" Color="#0B1220" />
+    <SolidColorBrush x:Key="Bg.Dark"    Color="#101A2E" />
+    <SolidColorBrush x:Key="Bg.Mid"     Color="#16213A" />
+    <SolidColorBrush x:Key="Bg.Card"    Color="#1B2740" />
+    <SolidColorBrush x:Key="Bg.Hover"   Color="#243357" />
+    <SolidColorBrush x:Key="Bg.Input"   Color="#0D1524" />
+    <SolidColorBrush x:Key="Border.Soft" Color="#294066" />
+
+    <SolidColorBrush x:Key="Accent"     Color="#1E96F5" />
+    <SolidColorBrush x:Key="Accent.Hover" Color="#0A6FE0" />
+    <SolidColorBrush x:Key="Text.Primary" Color="#EAF2FD" />
+    <SolidColorBrush x:Key="Text.Muted"   Color="#8FA0C0" />
+    <SolidColorBrush x:Key="Online"     Color="#37D07A" />
+    <SolidColorBrush x:Key="Badge"      Color="#FF5069" />
+
+    <!-- Gradiente do brand (barra lateral / cabeçalhos) — diagonal, azul da logo -->
+    <LinearGradientBrush x:Key="Brand.Gradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#3FB4FF" Offset="0" />
+        <GradientStop Color="#1E96F5" Offset="0.55" />
+        <GradientStop Color="#0F72E6" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Gradiente glossy vertical para botões 3D (claro em cima → escuro embaixo) -->
+    <LinearGradientBrush x:Key="Accent.Gradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#54BCFF" Offset="0" />
+        <GradientStop Color="#1E96F5" Offset="0.5" />
+        <GradientStop Color="#0A72E6" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Brilho superior (highlight) sobreposto para dar aspecto de vidro -->
+    <LinearGradientBrush x:Key="Gloss.Overlay" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#40FFFFFF" Offset="0" />
+        <GradientStop Color="#10FFFFFF" Offset="0.5" />
+        <GradientStop Color="#00FFFFFF" Offset="0.5" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="Rail.Gradient" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#0F1930" Offset="0" />
+        <GradientStop Color="#0A1120" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Fundos com profundidade (degradês) para dar elegância -->
+    <LinearGradientBrush x:Key="App.Bg" StartPoint="0,0" EndPoint="0.7,1">
+        <GradientStop Color="#0A1322" Offset="0" />
+        <GradientStop Color="#0D1A32" Offset="0.5" />
+        <GradientStop Color="#080F1E" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Chat.Bg" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#16294A" Offset="0" />
+        <GradientStop Color="#0A1424" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Header.Bg" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#213656" Offset="0" />
+        <GradientStop Color="#152340" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Linha de destaque (accent) horizontal -->
+    <LinearGradientBrush x:Key="Accent.Line" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#2C9BF7" Offset="0" />
+        <GradientStop Color="#1E7BE8" Offset="0.5" />
+        <GradientStop Color="#0A6FE0" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Sidebar.Bg" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#0F1829" Offset="0" />
+        <GradientStop Color="#0A1120" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- Balões de mensagem -->
+    <LinearGradientBrush x:Key="Bubble.Mine" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#2C9BF7" Offset="0" />
+        <GradientStop Color="#1878E7" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="Bubble.Other" Color="#1C2A45" />
+
+    <!-- Botão de sala (com destaque suave no hover) -->
+    <Style x:Key="ChannelButton" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Text.Muted}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="cb" Background="{TemplateBinding Background}" CornerRadius="9"
+                            Padding="{TemplateBinding Padding}" Margin="6,1">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="cb" Property="Background" Value="{StaticResource Bg.Hover}" />
+                            <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============================================================
+         Ícones (geometrias 24x24)
+         ============================================================ -->
+    <Geometry x:Key="Icon.Gear">M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z</Geometry>
+    <Geometry x:Key="Icon.Plus">M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z</Geometry>
+    <Geometry x:Key="Icon.Globe">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.58 16.9,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z</Geometry>
+    <Geometry x:Key="Icon.AccountPlus">M15,14C12.33,14 7,15.33 7,18V20H23V18C23,15.33 17.67,14 15,14M6,10V7H4V10H1V12H4V15H6V12H9V10M15,12A4,4 0 0,0 19,8A4,4 0 0,0 15,4A4,4 0 0,0 11,8A4,4 0 0,0 15,12Z</Geometry>
+    <Geometry x:Key="Icon.Monitor">M21,16H3V4H21M21,2H3C1.89,2 1,2.89 1,4V16A2,2 0 0,0 3,18H10V20H8V22H16V20H14V18H21A2,2 0 0,0 23,16V4C23,2.89 22.1,2 21,2Z</Geometry>
+    <Geometry x:Key="Icon.PhoneHangup">M12,9C10.4,9 8.85,9.25 7.4,9.72V12.82C7.4,13.22 7.17,13.56 6.84,13.72C5.86,14.21 4.97,14.84 4.17,15.57C4,15.75 3.75,15.86 3.5,15.86C3.2,15.86 2.95,15.74 2.77,15.56L0.29,13.08C0.11,12.9 0,12.65 0,12.35C0,12.05 0.11,11.8 0.29,11.62C3.34,8.79 7.46,7 12,7C16.54,7 20.66,8.79 23.71,11.62C23.89,11.8 24,12.05 24,12.35C24,12.65 23.89,12.9 23.71,13.08L21.23,15.56C21.05,15.74 20.8,15.86 20.5,15.86C20.25,15.86 20,15.75 19.82,15.57C19.03,14.84 18.14,14.21 17.16,13.72C16.83,13.56 16.6,13.22 16.6,12.82V9.72C15.15,9.25 13.6,9 12,9Z</Geometry>
+    <Geometry x:Key="Icon.Volume">M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,18.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z</Geometry>
+    <Geometry x:Key="Icon.Hash">M5.41,21L6.12,17H2.12L2.47,15H6.47L7.53,9H3.53L3.88,7H7.88L8.59,3H10.59L9.88,7H15.88L16.59,3H18.59L17.88,7H21.88L21.53,9H17.53L16.47,15H20.47L20.12,17H16.12L15.41,21H13.41L14.12,17H8.12L7.41,21H5.41M9.53,9L8.47,15H14.47L15.53,9H9.53Z</Geometry>
+    <Geometry x:Key="Icon.Send">M2,21L23,12L2,3V10L17,12L2,14V21Z</Geometry>
+    <Geometry x:Key="Icon.Mic">M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z</Geometry>
+    <Geometry x:Key="Icon.MicOff">M19,11C19,12.19 18.66,13.3 18.1,14.28L16.87,13.05C17.14,12.43 17.3,11.74 17.3,11H19M15,11.16L9,5.18V5A3,3 0 0,1 12,2A3,3 0 0,1 15,5V11L15,11.16M4.27,3L21,19.73L19.73,21L15.54,16.81C14.77,17.27 13.91,17.58 13,17.72V21H11V17.72C7.72,17.23 5,14.41 5,11H6.7C6.7,14 9.24,16.1 12,16.1C12.81,16.1 13.6,15.91 14.31,15.58L12.65,13.92L12,14A3,3 0 0,1 9,11V10.28L3,4.27L4.27,3Z</Geometry>
+    <Geometry x:Key="Icon.Fullscreen">M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z</Geometry>
+    <Geometry x:Key="Icon.Eye">M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z</Geometry>
+    <Geometry x:Key="Icon.Message">M20,2H4A2,2 0 0,0 2,4V22L6,18H20A2,2 0 0,0 22,16V4A2,2 0 0,0 20,2Z</Geometry>
+    <Geometry x:Key="Icon.Paperclip">M16.5,6V17.5A4,4 0 0,1 12.5,21.5A4,4 0 0,1 8.5,17.5V5A2.5,2.5 0 0,1 11,2.5A2.5,2.5 0 0,1 13.5,5V15.5A1,1 0 0,1 12.5,16.5A1,1 0 0,1 11.5,15.5V6H10V15.5A2.5,2.5 0 0,0 12.5,18A2.5,2.5 0 0,0 15,15.5V5A4,4 0 0,0 11,1A4,4 0 0,0 7,5V17.5A5.5,5.5 0 0,0 12.5,23A5.5,5.5 0 0,0 18,17.5V6H16.5Z</Geometry>
+    <Geometry x:Key="Icon.File">M13,9H18.5L13,3.5V9M6,2H14L20,8V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V4A2,2 0 0,1 6,2M15,18V16H6V18H15M18,14V12H6V14H18Z</Geometry>
+
+    <!-- ============================================================
+         Botões
+         ============================================================ -->
+    <Style x:Key="AccentButton" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource Accent.Gradient}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="18,10" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <!-- Sombra colorida = leve elevação 3D -->
+                    <Border x:Name="b" Background="{TemplateBinding Background}"
+                            CornerRadius="12" Padding="{TemplateBinding Padding}"
+                            BorderThickness="1" BorderBrush="#5AC6FF">
+                        <Border.Effect>
+                            <DropShadowEffect Color="#0A6FE0" BlurRadius="14"
+                                              ShadowDepth="2" Direction="270" Opacity="0.55" />
+                        </Border.Effect>
+                        <Grid>
+                            <!-- Brilho de vidro no topo -->
+                            <Border CornerRadius="12" Background="{StaticResource Gloss.Overlay}" />
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Opacity" Value="0.94" />
+                            <Setter TargetName="b" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="#0A6FE0" BlurRadius="22"
+                                                      ShadowDepth="2" Direction="270" Opacity="0.8" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="b" Property="Effect">
+                                <Setter.Value>
+                                    <DropShadowEffect Color="#0A6FE0" BlurRadius="8"
+                                                      ShadowDepth="0" Direction="270" Opacity="0.5" />
+                                </Setter.Value>
+                            </Setter>
+                            <Setter TargetName="b" Property="RenderTransform">
+                                <Setter.Value>
+                                    <TranslateTransform Y="1" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="b" Property="Opacity" Value="0.4" />
+                            <Setter TargetName="b" Property="Effect" Value="{x:Null}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Botão secundário (contorno) -->
+    <Style x:Key="GhostButton" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="Padding" Value="16,9" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="{TemplateBinding Background}"
+                            BorderBrush="{StaticResource Border.Soft}" BorderThickness="1"
+                            CornerRadius="12" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Bg.Hover}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Botão da barra de ícones à esquerda -->
+    <Style x:Key="IconRailButton" TargetType="Button">
+        <Setter Property="Width" Value="46" />
+        <Setter Property="Height" Value="46" />
+        <Setter Property="Margin" Value="7,5" />
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="Background" Value="{StaticResource Bg.Card}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="23">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Brand.Gradient}" />
+                            <Setter TargetName="b" Property="CornerRadius" Value="15" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Opção em "pílula" (resolução de transmissão) -->
+    <Style x:Key="PillRadio" TargetType="RadioButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0,0,6,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="p" Background="{StaticResource Bg.Card}" CornerRadius="8" Padding="14,7"
+                            BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                        <ContentPresenter TextElement.Foreground="{StaticResource Text.Primary}"
+                                          TextElement.FontSize="12" HorizontalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="p" Property="Background" Value="{StaticResource Accent}" />
+                            <Setter TargetName="p" Property="BorderBrush" Value="{StaticResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Botão de servidor na barra (ícone limpo, sem moldura) -->
+    <Style x:Key="ServerRailButton" TargetType="Button">
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Height" Value="48" />
+        <Setter Property="Margin" Value="12,5" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="Transparent">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Botão de controle de call -->
+    <Style x:Key="CallButton" TargetType="Button">
+        <Setter Property="Width" Value="42" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Margin" Value="6,0,0,0" />
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="Background" Value="{StaticResource Bg.Card}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="11">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Bg.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HangupButton" TargetType="Button" BasedOn="{StaticResource CallButton}">
+        <Setter Property="Background" Value="{StaticResource Badge}" />
+        <Setter Property="Foreground" Value="White" />
+    </Style>
+
+    <!-- ============================================================
+         Caixa de texto
+         ============================================================ -->
+    <Style x:Key="ChatTextBox" TargetType="TextBox">
+        <Setter Property="Background" Value="{StaticResource Bg.Input}" />
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="CaretBrush" Value="{StaticResource Text.Primary}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{StaticResource Border.Soft}" />
+        <Setter Property="Padding" Value="14,11" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="b" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsFocused" Value="True">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============================================================
+         ComboBox (tema escuro) — corrige a seleção de dispositivos
+         ============================================================ -->
+    <Style x:Key="ComboToggle" TargetType="ToggleButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="b" Background="{StaticResource Bg.Input}"
+                            BorderBrush="{StaticResource Border.Soft}" BorderThickness="1"
+                            CornerRadius="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="30" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter Grid.Column="0" Margin="14,0,0,0"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{StaticResource Text.Primary}"
+                                              Content="{Binding SelectionBoxItem,
+                                                        RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                              ContentTemplate="{Binding SelectionBoxItemTemplate,
+                                                        RelativeSource={RelativeSource AncestorType=ComboBox}}" />
+                            <Path Grid.Column="1" Data="M7,10L12,15L17,10Z" Fill="{StaticResource Text.Muted}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ComboBox">
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="Height" Value="42" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <ToggleButton Style="{StaticResource ComboToggle}"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                  RelativeSource={RelativeSource TemplatedParent}}" />
+                        <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                               AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                            <Border Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}"
+                                    BorderThickness="1" CornerRadius="10" Margin="0,4,0,0"
+                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ScrollViewer MaxHeight="240">
+                                    <ItemsPresenter />
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource Text.Primary}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="b" Background="Transparent" CornerRadius="6" Margin="4,2"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Bg.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{StaticResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

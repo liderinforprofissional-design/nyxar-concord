@@ -1,0 +1,277 @@
+using System.Collections.Specialized;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media.Imaging;
+using Microsoft.Win32;
+using NyxarConcord.Models;
+using NyxarConcord.Services;
+using NyxarConcord.ViewModels;
+
+namespace NyxarConcord.Views;
+
+public partial class MainWindow : Window
+{
+    private readonly MainViewModel _vm;
+    private readonly IdentityService _identityService = new();
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        // Logo do app na barra de título e na taskbar.
+        try { Icon = new BitmapImage(new System.Uri("pack://application:,,,/Assets/nyxar.png")); } catch { }
+
+        // Tamanho "restaurado" confortável; abre maximizado por padrão.
+        var wa = SystemParameters.WorkArea;
+        Width = System.Math.Min(1500, wa.Width * 0.9);
+        Height = System.Math.Min(900, wa.Height * 0.9);
+        WindowState = WindowState.Maximized;
+
+        var identity = _identityService.Load();
+
+        if (!identity.HasAccount)
+        {
+            // Primeiro acesso: criar conta.
+            var register = new RegisterWindow();
+            if (register.ShowDialog() != true) { Application.Current.Shutdown(); return; }
+            var (hash, salt) = AccountService.HashPassword(register.Password);
+            identity.Email = register.Email;
+            identity.Username = register.Username;
+            identity.DisplayName = register.Username;
+            identity.AvatarPath = register.AvatarPath;
+            identity.PasswordHash = hash;
+            identity.PasswordSalt = salt;
+            identity.Handle = AccountService.GenerateHandle(register.Username);
+            identity.LoggedIn = true;
+            _identityService.Save(identity);
+        }
+        else if (!identity.LoggedIn)
+        {
+            // Sessão encerrada: pedir login.
+            if (new LoginWindow(identity).ShowDialog() != true) { Application.Current.Shutdown(); return; }
+            identity.LoggedIn = true;
+            _identityService.Save(identity);
+        }
+
+        // Garante handle mesmo em contas antigas.
+        if (string.IsNullOrWhiteSpace(identity.Handle))
+        {
+            identity.Handle = AccountService.GenerateHandle(identity.DisplayName);
+            _identityService.Save(identity);
+        }
+
+        _vm = new MainViewModel(identity, _identityService, new AudioDeviceService(), new ScreenSourceService());
+        DataContext = _vm;
+
+        _vm.Messages.CollectionChanged += OnMessagesChanged;
+        Closed += (_, _) => _vm.Dispose();
+
+        // Verifica atualizações no GitHub após a janela abrir (silencioso se falhar).
+        Loaded += async (_, _) => await CheckForUpdatesAsync();
+    }
+
+    private async System.Threading.Tasks.Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var info = await new UpdateService().CheckAsync();
+            if (info is null) return;
+
+            var r = MessageBox.Show(
+                $"Uma nova versão do Nyxar Concord está disponível: v{info.Version}\n" +
+                $"Você está na v{UpdateService.CurrentVersion}.\n\n" +
+                "Deseja abrir a página de download?",
+                "Atualização disponível", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+            if (r == MessageBoxResult.Yes && !string.IsNullOrEmpty(info.Url))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e) => MessageScroll.ScrollToEnd();
+
+    private void MessageInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            if (_vm.SendCommand.CanExecute(null)) _vm.SendCommand.Execute(null);
+        }
+    }
+
+    // --- Rail: servidores ---
+    private void Home_Click(object sender, RoutedEventArgs e) => _vm.SelectHome();
+
+    private void SelfNotes_Click(object sender, RoutedEventArgs e) => _vm.SelectSelfNotes();
+
+    private void Server_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Server server }) _vm.SelectServer(server);
+    }
+
+    private void CreateServer_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new CreateServerDialog { Owner = this };
+        if (dlg.ShowDialog() == true) _vm.CreateServer(dlg.ServerNameText, dlg.AvatarPath);
+    }
+
+    private void DeleteServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: Server server } &&
+            MessageBox.Show($"Excluir o servidor \"{server.Name}\"?", "Excluir servidor",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            _vm.DeleteServer(server);
+    }
+
+    // --- Sidebar: canais ---
+    private void CreateChannel_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_vm.HasServer) { MessageBox.Show("Selecione um servidor primeiro."); return; }
+        var dlg = new CreateRoomDialog { Owner = this };
+        if (dlg.ShowDialog() == true) _vm.CreateChannel(dlg.RoomNameText, dlg.SelectedKind, dlg.Emoji);
+    }
+
+    private void Channel_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Room room }) _vm.JoinRoom(room);
+    }
+
+    private void ToggleLock_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: Room room }) _vm.ToggleLock(room);
+    }
+
+    private void DeleteChannel_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: Room room } &&
+            MessageBox.Show($"Excluir a sala \"{room.Name}\"?", "Excluir sala",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            _vm.DeleteChannel(room);
+    }
+
+    // --- Convite / call ---
+    private void InternetInvite_Click(object sender, RoutedEventArgs e)
+        => new InternetInviteDialog(_vm) { Owner = this }.ShowDialog();
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        var vm = new SettingsViewModel(_vm.Identity, _vm.IdentityService, _vm.AudioDeviceService);
+        var win = new SettingsWindow(vm) { Owner = this };
+        if (win.ShowDialog() != true) return;
+
+        if (win.LogoutRequested)
+        {
+            _vm.Logout();
+            try { System.Diagnostics.Process.Start(System.Environment.ProcessPath ?? ""); } catch { }
+            Application.Current.Shutdown();
+            return;
+        }
+        _vm.ApplyAudioSettings();
+    }
+
+    private void Invite_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_vm.HasServer) return;
+        if (_vm.Peers.Count == 0) { MessageBox.Show("Nenhum contato na rede para convidar ainda."); return; }
+        var dlg = new InvitePeerDialog(_vm.Peers) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.Selected is not null) _ = _vm.InvitePeerAsync(dlg.Selected);
+    }
+
+    private void ShareScreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_vm.CanShareScreen) { MessageBox.Show("Você precisa estar num canal de voz para compartilhar a tela."); return; }
+        var picker = new ScreenSharePicker(_vm.ScreenSourceService) { Owner = this };
+        if (picker.ShowDialog() == true && picker.Selected is not null)
+            _ = _vm.StartScreenShareAsync(picker.Selected, picker.SelectedHeight);
+    }
+
+    private void StopShare_Click(object sender, RoutedEventArgs e) => _vm.StopScreenShare();
+
+    private void Hangup_Click(object sender, RoutedEventArgs e) => _vm.LeaveCall();
+    private void MuteMic_Click(object sender, RoutedEventArgs e) => _vm.ToggleMic();
+
+    // --- Arquivos ---
+    private void Attach_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Title = "Escolher arquivo (até 100 MB)" };
+        if (dlg.ShowDialog() == true) _ = _vm.SendFileAsync(dlg.FileName);
+    }
+
+    private void SaveFile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: NyxarConcord.Models.ChatMessage { FileData: { } data } msg })
+        {
+            var dlg = new SaveFileDialog { FileName = msg.FileName, Title = "Salvar arquivo" };
+            if (dlg.ShowDialog() == true)
+            {
+                try { System.IO.File.WriteAllBytes(dlg.FileName, data); }
+                catch { MessageBox.Show("Não foi possível salvar o arquivo."); }
+            }
+        }
+    }
+
+    // --- Transmissão ---
+    private void Watch_Click(object sender, RoutedEventArgs e) => _vm.WatchStream();
+    private void BackToChat_Click(object sender, RoutedEventArgs e) => _vm.StopWatching();
+
+    private void Tile_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: StreamTile tile }) _vm.ToggleMaximize(tile);
+    }
+
+    private void Restore_Click(object sender, MouseButtonEventArgs e) => _vm.Restore();
+
+    // --- Moderação ---
+    private void Kick_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: RoomMember member }) _vm.KickMember(member);
+    }
+
+    private void Ban_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: RoomMember member } &&
+            MessageBox.Show($"Banir {member.DisplayName} deste canal?", "Banir",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+            _vm.BanMember(member);
+    }
+
+    // --- Foto do servidor ---
+    private void ChangeServerPhoto_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: Server server })
+        {
+            var dlg = new OpenFileDialog { Filter = "Imagens|*.png;*.jpg;*.jpeg;*.bmp;*.gif" };
+            if (dlg.ShowDialog() == true) _vm.ChangeServerPhoto(server, dlg.FileName);
+        }
+    }
+
+    // --- Perfis ---
+    private void SelfProfile_Click(object sender, RoutedEventArgs e)
+        => new ProfileWindow(_vm.SelfName, _vm.SelfHandle, _vm.SelfStatus, _vm.SelfAvatarPath, _vm.SelfInitials)
+        { Owner = this }.ShowDialog();
+
+    private void Member_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: RoomMember member })
+        {
+            if (member.IsSelf) { SelfProfile_Click(sender, e); return; }
+            var peer = _vm.Peers.FirstOrDefault(p => p.Peer.Id == member.PeerId);
+            if (peer is not null) OpenPeerProfile(peer);
+        }
+    }
+
+    private void MessageAvatar_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ChatMessage msg } && !msg.IsSystem)
+        {
+            var peer = _vm.Peers.FirstOrDefault(p => p.Peer.Id == msg.SenderId);
+            if (peer is not null) OpenPeerProfile(peer);
+        }
+    }
+
+    private void OpenPeerProfile(PeerViewModel peer)
+        => new ProfileWindow(_vm, peer) { Owner = this }.ShowDialog();
+}

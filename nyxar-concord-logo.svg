@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bubble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fc8ff"/>
+      <stop offset="0.45" stop-color="#22a0f7"/>
+      <stop offset="1" stop-color="#0a78e8"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9ad9ff"/>
+      <stop offset="1" stop-color="#0f6fd8"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <radialGradient id="innerglow" cx="0.5" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#bfe8ff" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#bfe8ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- Balão: corpo + rabinho -->
+  <g>
+    <!-- rabinho (atrás) -->
+    <path d="M 410 700 L 300 900 L 560 710 Z" fill="url(#rim)"/>
+    <path d="M 418 700 L 322 872 L 545 712 Z" fill="url(#bubble)"/>
+
+    <!-- borda -->
+    <circle cx="512" cy="432" r="342" fill="url(#rim)"/>
+    <!-- corpo -->
+    <circle cx="512" cy="432" r="326" fill="url(#bubble)"/>
+    <!-- brilho interno -->
+    <circle cx="512" cy="432" r="326" fill="url(#innerglow)"/>
+
+    <!-- reflexo/gloss no topo -->
+    <path d="M 250 300
+             C 300 190, 720 190, 774 300
+             C 800 355, 690 405, 512 405
+             C 334 405, 224 355, 250 300 Z"
+          fill="url(#gloss)" filter="url(#soft)" opacity="0.9"/>
+  </g>
+
+  <!-- Texto -->
+  <g text-anchor="middle" font-family="'Segoe UI', 'Trebuchet MS', Arial, sans-serif">
+    <text x="512" y="470" font-size="196" font-weight="800" fill="#ffffff">Nyxar</text>
+    <text x="514" y="562" font-size="82" font-weight="700" letter-spacing="16" fill="#eaf4ff">CONCORD</text>
+  </g>
+</svg>

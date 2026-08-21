@@ -1,0 +1,17 @@
+<Window x:Class="NyxarConcord.Views.NameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nyxar Concord" Height="220" Width="380"
+        Background="{StaticResource Bg.Mid}"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        WindowStyle="SingleBorderWindow">
+    <StackPanel Margin="24" VerticalAlignment="Center">
+        <TextBlock Text="Bem-vindo ao Nyxar Concord" FontSize="16" FontWeight="Bold"
+                   Foreground="{StaticResource Text.Primary}" />
+        <TextBlock Text="Como você quer ser chamado na rede?" FontSize="12"
+                   Foreground="{StaticResource Text.Muted}" Margin="0,4,0,14" />
+        <TextBox x:Name="NameInput" Style="{StaticResource ChatTextBox}" />
+        <Button Content="Entrar" Margin="0,16,0,0" HorizontalAlignment="Right"
+                Style="{StaticResource AccentButton}" Click="Enter_Click" IsDefault="True" />
+    </StackPanel>
+</Window>

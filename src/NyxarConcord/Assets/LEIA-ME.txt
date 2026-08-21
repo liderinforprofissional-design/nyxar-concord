@@ -1,0 +1,11 @@
+Coloque a sua logo (o balão azul) aqui com o nome exato:
+
+    nyxar.png
+
+Ou seja, o caminho final deve ser:
+    src\NyxarConcord\Assets\nyxar.png
+
+O app carrega essa imagem e escreve "Concord" por cima, dentro do balão,
+nas telas de cadastro e login (componente BrandLogo).
+
+Depois de salvar o arquivo, recompile o projeto (F5).

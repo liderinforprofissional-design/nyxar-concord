@@ -1,0 +1,37 @@
+<Window x:Class="NyxarConcord.Views.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:NyxarConcord.Views"
+        Title="Entrar" Height="520" Width="400"
+        Background="{StaticResource Bg.Darkest}"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True">
+    <Border CornerRadius="16" Background="{StaticResource Bg.Dark}" BorderBrush="{StaticResource Border.Soft}"
+            BorderThickness="1">
+        <StackPanel Margin="34">
+            <local:BrandLogo Height="120" Margin="0,0,0,6" />
+            <Grid Width="72" Height="72" HorizontalAlignment="Center">
+                <Border CornerRadius="36" Background="{StaticResource Brand.Gradient}">
+                    <TextBlock x:Name="AvatarInitials" Text="?" FontSize="28" FontWeight="Bold"
+                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <Ellipse Width="72" Height="72">
+                    <Ellipse.Fill><ImageBrush x:Name="AvatarBrush" Stretch="UniformToFill" /></Ellipse.Fill>
+                </Ellipse>
+            </Grid>
+            <TextBlock x:Name="WelcomeText" Text="Bem-vindo de volta" FontSize="17" FontWeight="Bold"
+                       Foreground="{StaticResource Text.Primary}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+            <TextBlock x:Name="HandleText" FontSize="11" Foreground="{StaticResource Text.Muted}"
+                       HorizontalAlignment="Center" />
+
+            <TextBlock Text="SENHA" FontSize="11" FontWeight="SemiBold"
+                       Foreground="{StaticResource Text.Muted}" Margin="0,22,0,4" />
+            <PasswordBox x:Name="PasswordInput" Background="{StaticResource Bg.Input}"
+                         Foreground="{StaticResource Text.Primary}" BorderBrush="{StaticResource Border.Soft}"
+                         BorderThickness="1" Padding="12,10" FontSize="14" />
+
+            <Button Content="Entrar" Style="{StaticResource AccentButton}" Margin="0,20,0,0" Height="46"
+                    Click="Login_Click" IsDefault="True" />
+        </StackPanel>
+    </Border>
+</Window>

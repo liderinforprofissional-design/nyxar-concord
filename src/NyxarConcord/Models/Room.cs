@@ -1,0 +1,106 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
+
+namespace NyxarConcord.Models;
+
+public enum RoomKind
+{
+    /// <summary>Canal de texto.</summary>
+    Text,
+    /// <summary>Canal de áudio (call), com compartilhamento de tela.</summary>
+    Audio
+}
+
+/// <summary>
+/// Uma "sala" (canal) dentro de um <see cref="Server"/>. Pode ser de texto ou de
+/// áudio, ter um emoji, ser trancada e ter usuários banidos (moderação).
+/// </summary>
+public sealed class Room : INotifyPropertyChanged
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    private string _name = "novo-canal";
+    public string Name { get => _name; set => Set(ref _name, value); }
+
+    public RoomKind Kind { get; set; } = RoomKind.Text;
+
+    /// <summary>Emoji do canal (no lugar de foto — mais minimalista).</summary>
+    private string _emoji = "";
+    public string Emoji { get => _emoji; set => Set(ref _emoji, value); }
+
+    /// <summary>Servidor ao qual o canal pertence.</summary>
+    public string ServerId { get; set; } = "";
+
+    // --- Moderação ---
+    private bool _locked;
+    /// <summary>Trancado: só entram usuários autorizados (ou moderadores).</summary>
+    public bool Locked { get => _locked; set { if (Set(ref _locked, value)) OnPropertyChanged(nameof(LockLabel)); } }
+
+    /// <summary>PeerIds autorizados quando o canal está trancado.</summary>
+    public List<string> AllowedIds { get; set; } = new();
+
+    /// <summary>PeerIds banidos deste canal.</summary>
+    public List<string> BannedIds { get; set; } = new();
+
+    /// <summary>Membros atualmente no canal (runtime, não persistido).</summary>
+    [JsonIgnore]
+    public ObservableCollection<RoomMember> Members { get; } = new();
+
+    [JsonIgnore] public bool IsAudio => Kind == RoomKind.Audio;
+    [JsonIgnore] public string LockLabel => Locked ? "Destrancar canal" : "Trancar canal";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged([CallerMemberName] string? n = null)
+        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? n = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
+        field = value; OnPropertyChanged(n); return true;
+    }
+}
+
+public sealed class RoomMember : INotifyPropertyChanged
+{
+    public string PeerId { get; init; } = "";
+    public string DisplayName { get; set; } = "";
+    public bool IsSelf { get; init; }
+    public string AvatarPath { get; set; } = "";
+
+    private bool _isMuted;
+    public bool IsMuted { get => _isMuted; set => Set(ref _isMuted, value); }
+
+    private bool _isSharingScreen;
+    public bool IsSharingScreen
+    {
+        get => _isSharingScreen;
+        set { Set(ref _isSharingScreen, value); Raise(nameof(VoiceStatus)); }
+    }
+
+    /// <summary>Status na sala de voz: "Transmitindo" ou "Em voz".</summary>
+    public string VoiceStatus => _isSharingScreen ? "Transmitindo" : "Em voz";
+
+    public string Initials
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(DisplayName)) return "?";
+            var parts = DisplayName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length == 1
+                ? parts[0][..1].ToUpperInvariant()
+                : (parts[0][..1] + parts[^1][..1]).ToUpperInvariant();
+        }
+    }
+
+    public string Role => IsSelf ? "você" : "";
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+    private void Raise(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+}

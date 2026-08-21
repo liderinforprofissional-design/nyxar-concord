@@ -1,0 +1,111 @@
+<Window x:Class="NyxarConcord.Views.CreateRoomDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Criar sala" Height="560" Width="420"
+        Background="{StaticResource Bg.Darkest}"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        WindowStyle="None" AllowsTransparency="True">
+    <Border CornerRadius="16" Background="{StaticResource Bg.Dark}" BorderBrush="{StaticResource Border.Soft}"
+            BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Padding="26,22,26,10">
+                <StackPanel>
+                    <TextBlock Text="Criar uma sala" FontSize="20" FontWeight="Bold"
+                               Foreground="{StaticResource Text.Primary}" />
+                    <TextBlock Text="Um canal de texto ou de voz dentro do servidor" FontSize="12"
+                               Foreground="{StaticResource Text.Muted}" Margin="0,2,0,0" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel Grid.Row="1" Margin="26,4,26,0">
+                <TextBlock Text="ÍCONE DA SALA" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource Text.Muted}" Margin="0,0,0,6" />
+                <Border Background="{StaticResource Bg.Input}" BorderBrush="{StaticResource Border.Soft}"
+                        BorderThickness="1" CornerRadius="10" Padding="8">
+                    <WrapPanel x:Name="EmojiPanel" />
+                </Border>
+
+                <TextBlock Text="NOME DA SALA" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource Text.Muted}" Margin="0,16,0,6" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="46" Height="46" CornerRadius="10" Background="{StaticResource Bg.Card}">
+                        <Path x:Name="EmojiPreview" Width="24" Height="24" Stretch="Uniform"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBox x:Name="RoomName" Grid.Column="1" Margin="10,0,0,0" Style="{StaticResource ChatTextBox}"
+                             Text="novo-canal" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="TIPO DE SALA" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource Text.Muted}" Margin="0,16,0,8" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <RadioButton x:Name="TextRadio" IsChecked="True" GroupName="kind" Cursor="Hand"
+                                 Margin="0,0,6,0">
+                        <RadioButton.Template>
+                            <ControlTemplate TargetType="RadioButton">
+                                <Border x:Name="c" Background="{StaticResource Bg.Card}" CornerRadius="10"
+                                        BorderBrush="{StaticResource Border.Soft}" BorderThickness="1" Padding="12,14">
+                                    <StackPanel>
+                                        <TextBlock Text="Texto" Foreground="{StaticResource Text.Primary}"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Text="Mensagens escritas" Foreground="{StaticResource Text.Muted}"
+                                                   FontSize="10" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="c" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                        <Setter TargetName="c" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RadioButton.Template>
+                    </RadioButton>
+                    <RadioButton x:Name="AudioRadio" Grid.Column="1" GroupName="kind" Cursor="Hand"
+                                 Margin="6,0,0,0">
+                        <RadioButton.Template>
+                            <ControlTemplate TargetType="RadioButton">
+                                <Border x:Name="c" Background="{StaticResource Bg.Card}" CornerRadius="10"
+                                        BorderBrush="{StaticResource Border.Soft}" BorderThickness="1" Padding="12,14">
+                                    <StackPanel>
+                                        <TextBlock Text="Voz" Foreground="{StaticResource Text.Primary}"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Text="Call + compartilhar tela" Foreground="{StaticResource Text.Muted}"
+                                                   FontSize="10" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter TargetName="c" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                        <Setter TargetName="c" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </RadioButton.Template>
+                    </RadioButton>
+                </Grid>
+            </StackPanel>
+
+            <Border Grid.Row="2" Padding="26,16" CornerRadius="0,0,16,16">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancelar" Style="{StaticResource GhostButton}" Margin="0,0,10,0" Click="Cancel_Click" />
+                    <Button Content="Criar sala" Style="{StaticResource AccentButton}" Click="Create_Click" IsDefault="True" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
