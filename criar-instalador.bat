@@ -14,7 +14,8 @@ echo === Verificando ferramentas ===
 dotnet --version >nul 2>&1 || (echo [ERRO] .NET SDK nao encontrado. & pause & exit /b 1)
 
 REM Le a versao do csproj (vira o nome do instalador).
-for /f "usebackq delims=" %%v in (`powershell -NoProfile -Command "[regex]::Match((Get-Content -Raw '%CSPROJ%'),'<Version>(.*?)</Version>').Groups[1].Value"`) do set "VER=%%v"
+set "VER="
+for /f "tokens=2 delims=<> " %%v in ('findstr /i "<Version>" "%CSPROJ%"') do if not defined VER set "VER=%%v"
 if "%VER%"=="" set "VER=0.1.0"
 echo Versao: %VER%
 
@@ -26,15 +27,15 @@ if errorlevel 1 (echo [ERRO] Falha ao compilar. & pause & exit /b 1)
 
 echo.
 echo === 2/2  Gerando o instalador (Inno Setup) ===
-set "ISCC=iscc"
-where iscc >nul 2>&1
-if errorlevel 1 set "ISCC=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if /i not "%ISCC%"=="iscc" if not exist "%ISCC%" (
-    echo [ERRO] Inno Setup 6 nao encontrado.
-    echo Instale com:  winget install JRSoftware.InnoSetup
+call :FIND_ISCC
+if not defined ISCC (
+    echo [ERRO] Inno Setup 6 nao encontrado em nenhum lugar conhecido.
+    echo Instale com:  winget install --id JRSoftware.InnoSetup -e
     echo ou baixe em:  https://jrsoftware.org/isdl.php
+    echo Depois, FECHE e reabra este terminal e rode de novo.
     pause & exit /b 1
 )
+echo Inno Setup: %ISCC%
 "%ISCC%" /DMyAppVersion=%VER% "installer\nyxar-concord.iss"
 if errorlevel 1 (echo [ERRO] Falha no Inno Setup. & pause & exit /b 1)
 
@@ -45,3 +46,17 @@ echo  installer\Output\NyxarConcordSetup-v%VER%.exe
 echo ============================================================
 echo.
 pause
+exit /b 0
+
+:FIND_ISCC
+REM Procura o ISCC.exe (compilador do Inno Setup) em varios lugares.
+set "ISCC="
+for /f "delims=" %%i in ('where iscc 2^>nul') do if not defined ISCC set "ISCC=%%i"
+if not defined ISCC if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+if not defined ISCC for /f "tokens=2,*" %%a in ('reg query "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v InstallLocation 2^>nul ^| find "InstallLocation"') do if exist "%%bISCC.exe" set "ISCC=%%bISCC.exe"
+if not defined ISCC for /f "tokens=2,*" %%a in ('reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v InstallLocation 2^>nul ^| find "InstallLocation"') do if exist "%%bISCC.exe" set "ISCC=%%bISCC.exe"
+if not defined ISCC for /f "tokens=2,*" %%a in ('reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v InstallLocation 2^>nul ^| find "InstallLocation"') do if exist "%%bISCC.exe" set "ISCC=%%bISCC.exe"
+if not defined ISCC for /f "tokens=2,*" %%a in ('reg query "HKCU\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v InstallLocation 2^>nul ^| find "InstallLocation"') do if exist "%%bISCC.exe" set "ISCC=%%bISCC.exe"
+goto :eof

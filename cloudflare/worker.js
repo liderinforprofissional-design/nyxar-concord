@@ -105,9 +105,10 @@ function makeHandle(username) {
   return `@${slug}-${n}`;
 }
 
-// Envio de e-mail transacional via Brevo.
+// Envio de e-mail transacional via Brevo. Retorna { ok, detail }.
 async function sendEmail(env, toEmail, subject, html) {
-  if (!env.BREVO_API_KEY) return false;
+  if (!env.BREVO_API_KEY) return { ok: false, detail: "BREVO_API_KEY nao configurada no Worker" };
+  if (!env.BREVO_SENDER_EMAIL) return { ok: false, detail: "BREVO_SENDER_EMAIL nao configurado" };
   try {
     const res = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
@@ -123,9 +124,11 @@ async function sendEmail(env, toEmail, subject, html) {
         htmlContent: html,
       }),
     });
-    return res.ok;
-  } catch {
-    return false;
+    if (res.ok) return { ok: true };
+    const body = await res.text();
+    return { ok: false, detail: `Brevo HTTP ${res.status}: ${body}` };
+  } catch (e) {
+    return { ok: false, detail: "Erro de rede ao chamar o Brevo: " + String(e) };
   }
 }
 
@@ -213,7 +216,7 @@ async function registerStart(body, env) {
 
   const sent = await sendEmail(env, email, "Seu código de verificação — Nyxar Concord",
     codeEmailHtml(code, "Use o código abaixo para confirmar seu e-mail e ativar sua conta:"));
-  if (!sent) return json({ ok: false, error: "Não foi possível enviar o e-mail. Verifique a configuração do Brevo." }, 502);
+  if (!sent.ok) return json({ ok: false, error: "Não foi possível enviar o e-mail. " + sent.detail }, 502);
 
   return json({ ok: true });
 }

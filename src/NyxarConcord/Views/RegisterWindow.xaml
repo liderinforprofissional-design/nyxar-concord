@@ -64,12 +64,9 @@
                     <Button x:Name="CreateButton" Content="Criar conta" Style="{StaticResource AccentButton}"
                             Margin="0,18,0,0" Height="44" Click="Register_Click" IsDefault="True" />
 
-                    <TextBlock Margin="0,12,0,0" HorizontalAlignment="Center">
-                        <Hyperlink Foreground="{StaticResource Text.Muted}" Click="ShowLogin_Click"
-                                   TextDecorations="None">
-                            <Run Text="Já tenho uma conta — entrar" FontSize="12" />
-                        </Hyperlink>
-                    </TextBlock>
+                    <TextBlock Text="A conta fica salva neste computador."
+                               FontSize="10" Foreground="{StaticResource Text.Muted}"
+                               HorizontalAlignment="Center" Margin="0,12,0,0" />
                 </StackPanel>
 
                 <!-- ============ PAINEL 2: CÓDIGO ============ -->

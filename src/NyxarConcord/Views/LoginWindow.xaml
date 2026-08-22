@@ -33,11 +33,6 @@
             <Button Content="Entrar" Style="{StaticResource AccentButton}" Margin="0,20,0,0" Height="46"
                     Click="Login_Click" IsDefault="True" />
 
-            <TextBlock Margin="0,14,0,0" HorizontalAlignment="Center">
-                <Hyperlink Foreground="{StaticResource Text.Muted}" Click="Forgot_Click" TextDecorations="None">
-                    <Run Text="Esqueci a senha" FontSize="12" />
-                </Hyperlink>
-            </TextBlock>
         </StackPanel>
     </Border>
 </Window>

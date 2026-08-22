@@ -66,10 +66,9 @@ public partial class RegisterWindow : Window
         btn.Content = busy ? busyText : normalText;
     }
 
-    // ---------- Passo 1: iniciar cadastro ----------
-    private async void Register_Click(object sender, RoutedEventArgs e)
+    // ---------- Cadastro (LOCAL, sem verificação por e-mail) ----------
+    private void Register_Click(object sender, RoutedEventArgs e)
     {
-        // Evita disparo pelo Enter (botão padrão) quando outro painel está visível.
         if (FormPanel.Visibility != Visibility.Visible) return;
 
         string email = EmailInput.Text.Trim();
@@ -81,42 +80,17 @@ public partial class RegisterWindow : Window
         if (pass.Length < 4) { SetStatus("A senha precisa ter ao menos 4 caracteres."); return; }
         if (pass != ConfirmInput.Password) { SetStatus("As senhas não conferem."); return; }
 
-        Busy(CreateButton, true, "Enviando código...", "Criar conta");
-        var r = await _api.RegisterStartAsync(email, username, pass);
-        Busy(CreateButton, false, "", "Criar conta");
-
-        if (!r.Ok)
-        {
-            // Servidor de cadastro indisponível (ex.: Worker ainda não publicado):
-            // oferece criar a conta apenas neste computador, sem verificação por e-mail.
-            bool offline = (r.Error ?? "").StartsWith("Sem conexão", StringComparison.OrdinalIgnoreCase);
-            if (offline)
-            {
-                var choice = MessageBox.Show(
-                    "O servidor de cadastro não respondeu (ele pode não estar publicado ainda).\n\n" +
-                    "Deseja criar a conta apenas neste computador, sem verificação por e-mail?",
-                    "Cadastro offline", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                if (choice == MessageBoxResult.Yes)
-                {
-                    Email = email; Username = username; Password = pass;
-                    Handle = AccountService.GenerateHandle(username);
-                    DisplayName = username;
-                    DialogResult = true;
-                    Close();
-                }
-                return;
-            }
-            SetStatus(r.Error ?? "Não foi possível iniciar o cadastro.");
-            return;
-        }
-
-        Email = email; Username = username; Password = pass;
-        CodeHint.Text = $"Enviamos um código de 6 dígitos para {email}. Digite-o abaixo.";
-        ShowPanel(CodePanel);
-        CodeInput.Focus();
+        // Conta criada apenas neste computador (a verificação por e-mail está desativada por enquanto).
+        Email = email;
+        Username = username;
+        Password = pass;
+        Handle = AccountService.GenerateHandle(username);
+        DisplayName = username;
+        DialogResult = true;
+        Close();
     }
 
-    // ---------- Passo 2: confirmar código ----------
+    // ---------- Passo 2: confirmar código (mantido para uso futuro) ----------
     private async void Verify_Click(object sender, RoutedEventArgs e)
     {
         string code = CodeInput.Text.Trim();
@@ -134,7 +108,7 @@ public partial class RegisterWindow : Window
         Close();
     }
 
-    // ---------- Entrar com conta existente ----------
+    // ---------- Entrar com conta existente (mantido para uso futuro) ----------
     private async void ServerLogin_Click(object sender, RoutedEventArgs e)
     {
         string id = LoginIdInput.Text.Trim();
