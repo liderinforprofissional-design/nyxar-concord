@@ -17,7 +17,7 @@ new_sqlite_classes = ["SignalRoom"]
 [[d1_databases]]
 binding = "DB"
 database_name = "nyxar-accounts"
-database_id = "COLE_AQUI_O_DATABASE_ID"
+database_id = "8a0e7a8f-3d8d-4a55-a7b0-8d0266630a0f"
 
 [vars]
 # Token ID da sua TURN Key (não é segredo — é só o identificador)

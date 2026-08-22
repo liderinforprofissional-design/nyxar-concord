@@ -85,7 +85,30 @@ public partial class RegisterWindow : Window
         var r = await _api.RegisterStartAsync(email, username, pass);
         Busy(CreateButton, false, "", "Criar conta");
 
-        if (!r.Ok) { SetStatus(r.Error ?? "Não foi possível iniciar o cadastro."); return; }
+        if (!r.Ok)
+        {
+            // Servidor de cadastro indisponível (ex.: Worker ainda não publicado):
+            // oferece criar a conta apenas neste computador, sem verificação por e-mail.
+            bool offline = (r.Error ?? "").StartsWith("Sem conexão", StringComparison.OrdinalIgnoreCase);
+            if (offline)
+            {
+                var choice = MessageBox.Show(
+                    "O servidor de cadastro não respondeu (ele pode não estar publicado ainda).\n\n" +
+                    "Deseja criar a conta apenas neste computador, sem verificação por e-mail?",
+                    "Cadastro offline", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (choice == MessageBoxResult.Yes)
+                {
+                    Email = email; Username = username; Password = pass;
+                    Handle = AccountService.GenerateHandle(username);
+                    DisplayName = username;
+                    DialogResult = true;
+                    Close();
+                }
+                return;
+            }
+            SetStatus(r.Error ?? "Não foi possível iniciar o cadastro.");
+            return;
+        }
 
         Email = email; Username = username; Password = pass;
         CodeHint.Text = $"Enviamos um código de 6 dígitos para {email}. Digite-o abaixo.";
