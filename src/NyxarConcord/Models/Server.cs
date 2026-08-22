@@ -49,6 +49,10 @@ public sealed class Server : INotifyPropertyChanged
 
     public bool CanModerate(string peerId) => peerId == OwnerId || AdminIds.Contains(peerId);
 
+    /// <summary>True se o usuário atual é dono/admin deste servidor (para a UI).</summary>
+    [JsonIgnore]
+    public bool CanManageByMe => CanModerate(Session.SelfId);
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? n = null)
     {

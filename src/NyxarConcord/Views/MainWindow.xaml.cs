@@ -21,7 +21,7 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         // Logo do app na barra de título e na taskbar.
-        try { Icon = new BitmapImage(new System.Uri("pack://application:,,,/Assets/nyxar.png")); } catch { }
+        try { Icon = new BitmapImage(new System.Uri("pack://application:,,,/Assets/nyxar.ico")); } catch { }
 
         // Tamanho "restaurado" confortável; abre maximizado por padrão.
         var wa = SystemParameters.WorkArea;
@@ -39,11 +39,13 @@ public partial class MainWindow : Window
             var (hash, salt) = AccountService.HashPassword(register.Password);
             identity.Email = register.Email;
             identity.Username = register.Username;
-            identity.DisplayName = register.Username;
+            identity.DisplayName = string.IsNullOrWhiteSpace(register.DisplayName) ? register.Username : register.DisplayName;
             identity.AvatarPath = register.AvatarPath;
             identity.PasswordHash = hash;
             identity.PasswordSalt = salt;
-            identity.Handle = AccountService.GenerateHandle(register.Username);
+            identity.Handle = string.IsNullOrWhiteSpace(register.Handle)
+                ? AccountService.GenerateHandle(register.Username)
+                : register.Handle;
             identity.LoggedIn = true;
             _identityService.Save(identity);
         }
@@ -102,6 +104,18 @@ public partial class MainWindow : Window
         }
     }
 
+    // Só o admin do servidor vê o menu (alterar foto / excluir).
+    private void ServerMenu_Opening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: Server s } && !s.CanManageByMe) e.Handled = true;
+    }
+
+    // Só o admin do servidor vê o menu da sala (trancar / excluir).
+    private void RoomMenu_Opening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: Room r } && !r.CanManageByMe) e.Handled = true;
+    }
+
     // --- Rail: servidores ---
     private void Home_Click(object sender, RoutedEventArgs e) => _vm.SelectHome();
 
@@ -130,6 +144,7 @@ public partial class MainWindow : Window
     private void CreateChannel_Click(object sender, RoutedEventArgs e)
     {
         if (!_vm.HasServer) { MessageBox.Show("Selecione um servidor primeiro."); return; }
+        if (!_vm.CanModerate) { MessageBox.Show("Só o administrador do servidor pode criar salas."); return; }
         var dlg = new CreateRoomDialog { Owner = this };
         if (dlg.ShowDialog() == true) _vm.CreateChannel(dlg.RoomNameText, dlg.SelectedKind, dlg.Emoji);
     }
@@ -175,7 +190,6 @@ public partial class MainWindow : Window
     private void Invite_Click(object sender, RoutedEventArgs e)
     {
         if (!_vm.HasServer) return;
-        if (_vm.Peers.Count == 0) { MessageBox.Show("Nenhum contato na rede para convidar ainda."); return; }
         var dlg = new InvitePeerDialog(_vm.Peers) { Owner = this };
         if (dlg.ShowDialog() == true && dlg.Selected is not null) _ = _vm.InvitePeerAsync(dlg.Selected);
     }

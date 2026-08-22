@@ -70,6 +70,61 @@ public sealed class ScreenCaptureService
         }
     }
 
+    /// <summary>Captura a fonte em BGR 24-bit cru (para o codec de vídeo WebRTC/VP8).</summary>
+    public byte[]? CaptureBgr(ScreenSource source, int maxHeight, out int outWidth, out int outHeight)
+    {
+        outWidth = 0; outHeight = 0;
+        int x, y, w, h;
+
+        if (source.Kind == ScreenSourceKind.Window && source.Handle != IntPtr.Zero)
+        {
+            if (!GetWindowRect(source.Handle, out RECT r)) return null;
+            x = r.left; y = r.top; w = r.right - r.left; h = r.bottom - r.top;
+        }
+        else
+        {
+            x = source.X; y = source.Y; w = source.Width; h = source.Height;
+        }
+        if (w <= 0 || h <= 0) return null;
+
+        IntPtr screenDc = GetDC(IntPtr.Zero);
+        IntPtr memDc = CreateCompatibleDC(screenDc);
+        IntPtr hBitmap = CreateCompatibleBitmap(screenDc, w, h);
+        IntPtr old = SelectObject(memDc, hBitmap);
+        try
+        {
+            BitBlt(memDc, 0, 0, w, h, screenDc, x, y, SRCCOPY);
+            var src = Imaging.CreateBitmapSourceFromHBitmap(
+                hBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+
+            BitmapSource frame = src;
+            if (h > maxHeight)
+            {
+                double scale = (double)maxHeight / h;
+                frame = new TransformedBitmap(src, new System.Windows.Media.ScaleTransform(scale, scale));
+            }
+
+            var bgr = new FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgr24, null, 0);
+            int fw = bgr.PixelWidth, fh = bgr.PixelHeight;
+            fw -= fw % 2; fh -= fh % 2;                // dimensões pares (exigência do VP8)
+            if (fw <= 0 || fh <= 0) return null;
+
+            int stride = fw * 3;
+            var buf = new byte[stride * fh];
+            bgr.CopyPixels(new Int32Rect(0, 0, fw, fh), buf, stride, 0);
+            outWidth = fw; outHeight = fh;
+            return buf;
+        }
+        catch { return null; }
+        finally
+        {
+            SelectObject(memDc, old);
+            DeleteObject(hBitmap);
+            DeleteDC(memDc);
+            ReleaseDC(IntPtr.Zero, screenDc);
+        }
+    }
+
     // --- P/Invoke GDI ---
     private const int SRCCOPY = 0x00CC0020;
 

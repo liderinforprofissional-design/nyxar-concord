@@ -40,7 +40,15 @@ public enum SignalType
     /// <summary>Um pedaço do arquivo em base64 (Payload = id, Text = base64).</summary>
     FileChunk,
     /// <summary>Fim do envio do arquivo (Payload = id).</summary>
-    FileEnd
+    FileEnd,
+
+    // --- Voz por WebRTC (mídia sai do relay e vai ponto-a-ponto) ---
+    /// <summary>Oferta SDP de WebRTC (SDP no campo Text).</summary>
+    RtcOffer,
+    /// <summary>Resposta SDP de WebRTC (SDP no campo Text).</summary>
+    RtcAnswer,
+    /// <summary>Candidato ICE de WebRTC (JSON no campo Text).</summary>
+    RtcIce
 }
 
 /// <summary>

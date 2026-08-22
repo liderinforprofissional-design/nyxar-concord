@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,26 +9,43 @@
     <RootNamespace>NyxarConcord</RootNamespace>
     <AssemblyName>NyxarConcord</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Product>Nyxar Concord</Product>
+    <!-- Ãcone do app (barra de tarefas / .exe) -->
+    <ApplicationIcon>Assets\nyxar.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Captura/reprodução de áudio (voz) -->
+    <!-- Captura/reproduÃ§Ã£o de Ã¡udio (voz) -->
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <!-- WebRTC (voz ponto-a-ponto via TURN) -->
+    <PackageReference Include="SIPSorcery" Version="10.0.16" />
+    <!-- Codec de vÃ­deo H264 (compartilhamento de tela por WebRTC) -->
+    <PackageReference Include="SIPSorceryMedia.FFmpeg" Version="10.0.16" />
   </ItemGroup>
 
   <!-- Imagens da marca (coloque nyxar.png em Assets\) -->
   <ItemGroup>
     <Resource Include="Assets\**\*.png" />
+    <Resource Include="Assets\nyxar.ico" />
+  </ItemGroup>
+
+  <!-- DLLs nativas do FFmpeg (H264). Baixe a build "shared" 7.x e copie os .dll
+       da pasta bin para src\NyxarConcord\ffmpeg\ . Elas sÃ£o copiadas para a saÃ­da. -->
+  <ItemGroup>
+    <None Include="ffmpeg\**\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>ffmpeg\%(Filename)%(Extension)</Link>
+    </None>
   </ItemGroup>
 
   <!--
-    Melhorias futuras de mídia:
-    Codec de áudio de baixa latência (Opus):
+    Melhorias futuras de mÃ­dia:
+    Codec de Ã¡udio de baixa latÃªncia (Opus):
       <PackageReference Include="Concentus" Version="2.2.2" />
-    NAT traversal (STUN/TURN/ICE) e mídia WebRTC (voz + tela pela internet):
+    NAT traversal (STUN/TURN/ICE) e mÃ­dia WebRTC (voz + tela pela internet):
       <PackageReference Include="SIPSorcery" Version="6.2.4" />
   -->
 
 </Project>
+

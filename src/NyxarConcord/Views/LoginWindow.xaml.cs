@@ -39,4 +39,19 @@ public partial class LoginWindow : Window
             PasswordInput.Clear();
         }
     }
+
+    private void Forgot_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new ForgotPasswordDialog(_identity.Email) { Owner = this };
+        if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.NewPassword))
+        {
+            // Atualiza o hash local para a nova senha (login offline continua funcionando).
+            var (hash, salt) = AccountService.HashPassword(dlg.NewPassword);
+            _identity.PasswordHash = hash;
+            _identity.PasswordSalt = salt;
+            MessageBox.Show("Senha redefinida com sucesso! Você já está entrando.");
+            DialogResult = true;
+            Close();
+        }
+    }
 }

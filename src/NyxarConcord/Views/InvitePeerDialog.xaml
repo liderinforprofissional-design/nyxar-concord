@@ -16,9 +16,10 @@
             </Grid.RowDefinitions>
 
             <StackPanel Grid.Row="0" Margin="24,22,24,6">
-                <TextBlock Text="Convidar para o servidor" FontSize="18" FontWeight="Bold"
+                <TextBlock Text="Buscar usuário" FontSize="18" FontWeight="Bold"
                            Foreground="{StaticResource Text.Primary}" />
-                <TextBlock Text="Busque por @handle ou nome" FontSize="12"
+                <TextBlock Text="Digite para buscar qualquer usuário por @handle ou nome. Quem estiver online pode ser convidado agora."
+                           TextWrapping="Wrap" FontSize="12"
                            Foreground="{StaticResource Text.Muted}" Margin="0,2,0,0" />
             </StackPanel>
 

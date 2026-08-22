@@ -11,8 +11,23 @@ class_name = "SignalRoom"
 tag = "v1"
 new_sqlite_classes = ["SignalRoom"]
 
+# Banco de contas (Cloudflare D1)
+# Crie com:  wrangler d1 create nyxar-accounts
+# Copie o "database_id" que ele mostrar e cole abaixo.
+[[d1_databases]]
+binding = "DB"
+database_name = "nyxar-accounts"
+database_id = "COLE_AQUI_O_DATABASE_ID"
+
 [vars]
 # Token ID da sua TURN Key (não é segredo — é só o identificador)
 TURN_KEY_ID = "832d58ceef40edbd74566f6078ad2314"
-# O SECRET (API Token) NÃO vai aqui. Ele é definido com:
+# O SECRET (API Token da TURN) NÃO vai aqui. Ele é definido com:
 #   wrangler secret put TURN_API_TOKEN
+
+# --- E-mail (Brevo) ---
+# Remetente: precisa ser um e-mail VERIFICADO na sua conta Brevo.
+BREVO_SENDER_EMAIL = "liderpacaja@gmail.com"
+BREVO_SENDER_NAME  = "Nyxar Concord"
+# A chave da API do Brevo NÃO vai aqui (é segredo). Defina com:
+#   wrangler secret put BREVO_API_KEY

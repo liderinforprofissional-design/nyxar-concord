@@ -50,7 +50,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Button Style="{StaticResource ServerRailButton}" Click="Server_Click" Tag="{Binding}"
-                                        ToolTip="{Binding Name}">
+                                        ToolTip="{Binding Name}" ContextMenuOpening="ServerMenu_Opening">
                                     <Button.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Alterar foto" Click="ChangeServerPhoto_Click" />
@@ -81,9 +81,9 @@
         <Border Grid.Column="1" Background="{StaticResource Sidebar.Bg}">
             <DockPanel>
                 <!-- Cabeçalho -->
-                <Border DockPanel.Dock="Top" Padding="18,18" Background="{StaticResource Header.Bg}"
-                        BorderBrush="{StaticResource Border.Soft}" BorderThickness="0,0,0,1">
-                    <TextBlock Text="{Binding ServerName}" FontWeight="Bold" FontSize="15"
+                <Border DockPanel.Dock="Top" Height="60" Padding="18,0" Background="{StaticResource Header.Bg}"
+                        BorderBrush="{StaticResource Accent.Line}" BorderThickness="0,0,0,2">
+                    <TextBlock Text="{Binding ServerName}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"
                                Foreground="{StaticResource Text.Primary}" TextTrimming="CharacterEllipsis" />
                 </Border>
 
@@ -125,7 +125,8 @@
                                 <TextBlock Text="SALAS" FontSize="11" FontWeight="SemiBold"
                                            Foreground="{StaticResource Text.Muted}" VerticalAlignment="Center" />
                                 <Button HorizontalAlignment="Right" Background="Transparent" BorderThickness="0"
-                                        Cursor="Hand" ToolTip="Criar sala" Click="CreateChannel_Click" Padding="4">
+                                        Cursor="Hand" ToolTip="Criar sala" Click="CreateChannel_Click" Padding="4"
+                                        Visibility="{Binding CanModerate, Converter={StaticResource BoolToVis}}">
                                     <Path Data="{StaticResource Icon.Plus}" Fill="{StaticResource Text.Muted}"
                                           Width="14" Height="14" Stretch="Uniform" />
                                 </Button>
@@ -135,7 +136,8 @@
                                     <DataTemplate>
                                         <StackPanel>
                                             <Button Style="{StaticResource ChannelButton}"
-                                                    Click="Channel_Click" Tag="{Binding}">
+                                                    Click="Channel_Click" Tag="{Binding}"
+                                                    ContextMenuOpening="RoomMenu_Opening">
                                                 <Button.ContextMenu>
                                                     <ContextMenu>
                                                         <MenuItem Header="{Binding LockLabel}" Click="ToggleLock_Click" />
@@ -309,7 +311,7 @@
 
             <DockPanel Grid.Column="0">
                 <!-- Cabeçalho + controles -->
-                <Border DockPanel.Dock="Top" Background="{StaticResource Header.Bg}" Padding="20,14"
+                <Border DockPanel.Dock="Top" Height="60" Background="{StaticResource Header.Bg}" Padding="20,0"
                         BorderBrush="{StaticResource Accent.Line}" BorderThickness="0,0,0,2">
                     <Grid>
                         <StackPanel VerticalAlignment="Center">
@@ -318,7 +320,7 @@
                             <TextBlock Text="{Binding ConversationSubtitle}" FontSize="11"
                                        Foreground="{StaticResource Text.Muted}" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                                     Visibility="{Binding HasRoom, Converter={StaticResource BoolToVis}}">
                             <Button ToolTip="{Binding MicToolTip}" Click="MuteMic_Click" Cursor="Hand"
                                     Visibility="{Binding InCall, Converter={StaticResource BoolToVis}}"

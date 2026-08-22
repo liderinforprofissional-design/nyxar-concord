@@ -51,6 +51,12 @@ public sealed class Room : INotifyPropertyChanged
     [JsonIgnore] public bool IsAudio => Kind == RoomKind.Audio;
     [JsonIgnore] public string LockLabel => Locked ? "Destrancar canal" : "Trancar canal";
 
+    /// <summary>True se o usuário atual pode gerenciar esta sala (admin do servidor).
+    /// Definido pela ViewModel ao abrir o servidor.</summary>
+    private bool _canManageByMe;
+    [JsonIgnore]
+    public bool CanManageByMe { get => _canManageByMe; set => Set(ref _canManageByMe, value); }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? n = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));

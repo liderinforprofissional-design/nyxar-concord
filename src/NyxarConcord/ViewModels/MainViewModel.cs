@@ -29,6 +29,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private volatile Peer[] _voiceTargets = Array.Empty<Peer>();
     private volatile string? _voiceRoomId;
 
+    // Voz por WebRTC (mídia ponto-a-ponto via TURN). false = volta ao relay.
+    private readonly WebRtcVoice _webVoice;
+    private bool _useWebRtcVoice = true;
+
     public ObservableCollection<PeerViewModel> Peers { get; } = new();
     public ObservableCollection<Server> Servers { get; } = new();
     public ObservableCollection<ChatMessage> Messages { get; } = new();
@@ -53,6 +57,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AudioDeviceService = audioDeviceService;
         ScreenSourceService = screenSourceService;
 
+        // Torna o id do usuário visível aos modelos (permissões de admin na UI).
+        Session.SelfId = identity.PeerId;
+
         _voice.NoiseSuppression = identity.Audio.NoiseSuppression;
         _voice.FrameCaptured += OnVoiceCaptured;
 
@@ -69,6 +76,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _relay.PeerHello += OnRelayHello;
         _relay.PeerLeft += OnRelayLeft;
         _relay.MessageReceived += OnRelayMessage;
+
+        _webVoice = new WebRtcVoice(SelfId, _voice, _relay);
+        _webVoice.VideoFrameDecoded += OnWebRtcVideoFrame;
 
         foreach (var server in _serverStore.Load())
         {
@@ -140,6 +150,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(SelectedPeer));
         CurrentRoom = null;
         CurrentServer = server;
+        ApplyRoomPermissions(server);
         Messages.Clear();
         Messages.Add(SystemMessage($"Servidor \"{server.Name}\". Escolha uma sala para começar."));
         RaiseConversationChanged();
@@ -163,15 +174,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void DeleteServer(Server server)
     {
+        if (!server.CanModerate(SelfId)) return; // só o admin exclui o servidor
         if (_currentServer?.Id == server.Id) SelectHome();
         Servers.Remove(server);
         SaveServers();
     }
 
-    public Room CreateChannel(string name, RoomKind kind, string emoji)
+    public Room? CreateChannel(string name, RoomKind kind, string emoji)
     {
         var server = _currentServer ?? throw new InvalidOperationException("Sem servidor selecionado.");
-        var room = new Room { Name = name, Kind = kind, Emoji = emoji, ServerId = server.Id };
+        if (!server.CanModerate(SelfId)) return null; // só o admin cria salas
+        var room = new Room { Name = name, Kind = kind, Emoji = emoji, ServerId = server.Id, CanManageByMe = true };
         server.Channels.Add(room);
         SaveServers();
         JoinRoom(room);
@@ -180,9 +193,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void DeleteChannel(Room room)
     {
+        if (_currentServer?.CanModerate(SelfId) != true) return; // só o admin exclui salas
         if (_currentRoom?.Id == room.Id) { StopWatching(); LeaveCurrentChannel(); _currentRoom = null; OnPropertyChanged(nameof(CurrentRoom)); }
         _currentServer?.Channels.Remove(room);
         SaveServers();
+    }
+
+    /// <summary>Marca em cada sala se o usuário atual pode gerenciá-la (admin do servidor).</summary>
+    private static void ApplyRoomPermissions(Server server)
+    {
+        bool can = server.CanManageByMe;
+        foreach (var r in server.Channels) r.CanManageByMe = can;
     }
 
     private void EnsureSelfServerMember(Server server)
@@ -201,6 +222,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void ChangeServerPhoto(Server server, string path)
     {
+        if (!server.CanModerate(SelfId)) return; // só o admin muda a foto
         server.AvatarPath = path;
         SaveServers();
     }
@@ -380,6 +402,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _voice.Muted = _isMicMuted;
             _voice.Start(dev);
             UpdateVoiceTargets();
+            if (_useWebRtcVoice && _relay.IsConnected)
+                _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
             _sfx.JoinCall();
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
         }
@@ -406,6 +430,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (IsSharingScreen) StopScreenShare();
         if (_currentRoom.IsAudio)
         {
+            _webVoice.Stop();
             _voice.Stop();
             var self = _currentRoom.Members.FirstOrDefault(m => m.IsSelf);
             if (self is not null) _currentRoom.Members.Remove(self);
@@ -764,6 +789,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         var roomId = _voiceRoomId;
         if (roomId is null) return;
+
+        // WebRTC ativo: manda a mídia ponto-a-ponto (não passa pelo relay).
+        if (_useWebRtcVoice && _webVoice.IsActive) { _webVoice.SendFrame(pcm); return; }
+
         string b64 = Convert.ToBase64String(pcm);
 
         if (_relay.IsConnected)
@@ -904,6 +933,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (cm is not null) cm.IsSharingScreen = sharing;
     }
 
+    // Quadro de tela recebido por WebRTC (VP8 decodificado em BGR) -> tile.
+    private void OnWebRtcVideoFrame(string peerId, byte[] bgr, int w, int h, int stride)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            if (peerId == SelfId) return;
+            var img = BgrToBitmap(bgr, w, h, stride);
+            if (img is null) return;
+            string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
+                          ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
+            SetMemberSharing(peerId, true);
+            var tile = GetOrCreateTile(peerId, name, false);
+            if (tile is not null) tile.Frame = img;
+        });
+    }
+
+    private static System.Windows.Media.Imaging.BitmapSource? BgrToBitmap(byte[] bgr, int w, int h, int stride)
+    {
+        try
+        {
+            var bmp = System.Windows.Media.Imaging.BitmapSource.Create(
+                w, h, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null, bgr, stride);
+            bmp.Freeze();
+            return bmp;
+        }
+        catch { return null; }
+    }
+
     private static BitmapImage? DecodeJpeg(byte[] data)
     {
         try
@@ -935,8 +992,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _lastFrameHash = 0;
         _lastFrameSentAt = DateTime.MinValue;
-        // ~3 fps (333ms) — bem mais leve que 5 fps, e só envia quando muda.
-        _shareTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(333) };
+        // ~10 fps — H264 comprime bem, então dá pra ser mais fluido que antes.
+        _shareTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
         _shareTimer.Tick += (_, _) => CaptureAndSend();
         _shareTimer.Start();
         return Task.CompletedTask;
@@ -945,6 +1002,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void CaptureAndSend()
     {
         if (!IsSharingScreen || _shareSource is null || _currentRoom is null) return;
+
+        // Caminho WebRTC: envia o vídeo (VP8) ponto-a-ponto, sem passar pelo relay.
+        if (_useWebRtcVoice && _webVoice.IsActive)
+        {
+            byte[]? bgr = _capture.CaptureBgr(_shareSource, _shareMaxHeight, out int vw, out int vh);
+            if (bgr is null) return;
+            var selfTile = Streams.FirstOrDefault(x => x.SharerId == SelfId);
+            if (selfTile is not null) selfTile.Frame = BgrToBitmap(bgr, vw, vh, vw * 3);
+            _ = System.Threading.Tasks.Task.Run(() => _webVoice.SendVideoFrame(bgr, vw, vh));
+            return;
+        }
+
         byte[]? jpeg = _capture.CaptureJpeg(_shareSource, _shareMaxHeight);
         if (jpeg is null) return;
 
@@ -1095,6 +1164,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _currentServer.Members.Add(new RoomMember { PeerId = id, DisplayName = peer.DisplayName });
                 OnPropertyChanged(nameof(ServerMembers));
                 if (_currentRoom is not null) UpdateVoiceTargets();
+                if (_currentRoom?.IsAudio == true && _useWebRtcVoice)
+                    _ = _webVoice.PeerJoinedAsync(id);
             }
         });
     }
@@ -1115,6 +1186,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             SetMemberSharing(id, false);
             RemoveTile(id);
+            _webVoice.PeerLeft(id);
         });
     }
 
@@ -1144,6 +1216,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OnSignalReceived(Peer peer, ChatMessage msg)
     {
+        // Sinalização WebRTC (SDP/ICE) — trata fora da thread de UI.
+        if (msg.Signal is SignalType.RtcOffer or SignalType.RtcAnswer or SignalType.RtcIce)
+        {
+            _ = _webVoice.HandleSignalAsync(peer.Id, msg);
+            return;
+        }
+
         if (msg.Signal == SignalType.VoiceFrame)
         {
             if (!string.IsNullOrEmpty(msg.Text) && msg.RoomId == _currentRoom?.Id)
@@ -1305,6 +1384,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        _webVoice.Dispose();
         _voice.Dispose();
         _relay.Dispose();
         _session.Dispose();
