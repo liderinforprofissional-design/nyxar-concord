@@ -29,9 +29,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private volatile Peer[] _voiceTargets = Array.Empty<Peer>();
     private volatile string? _voiceRoomId;
 
-    // Voz por WebRTC (mídia ponto-a-ponto via TURN). false = volta ao relay.
+    // Voz por WebRTC (mídia ponto-a-ponto via TURN). false = usa o relay (mais confiável).
+    // Deixado em false por enquanto: o relay transmite para todos na sala nos dois sentidos.
     private readonly WebRtcVoice _webVoice;
-    private bool _useWebRtcVoice = true;
+    private bool _useWebRtcVoice = false;
 
     public ObservableCollection<PeerViewModel> Peers { get; } = new();
     public ObservableCollection<Server> Servers { get; } = new();
@@ -586,16 +587,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         string id = Guid.NewGuid().ToString("N");
         string name = info.Name;
         long size = info.Length;
-        Messages.Add(new ChatMessage
-        {
-            Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, IsMine = true,
-            IsFile = true, FileName = name, FileSize = size
-        });
-        _sfx.FileSent();
 
         byte[] data;
         try { data = await File.ReadAllBytesAsync(path); }
         catch { Messages.Add(SystemMessage("Não foi possível ler o arquivo.")); return; }
+
+        // A mensagem do remetente já leva os bytes, para ele poder reabrir/salvar o anexo.
+        Messages.Add(new ChatMessage
+        {
+            Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, IsMine = true,
+            IsFile = true, FileName = name, FileSize = size, FileData = data
+        });
+        _sfx.FileSent();
 
         _ = Task.Run(async () =>
         {
@@ -1318,6 +1321,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (room.Members.All(m => m.PeerId != peer.Id))
                 room.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+
+            // Se eu já estou nesta sala e o outro acabou de anunciar (broadcast),
+            // respondo direto pra ele saber que eu também estou aqui.
+            if (_currentRoom?.Id == room.Id && string.IsNullOrEmpty(msg.To) && peer.Id != SelfId)
+            {
+                var ack = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId };
+                if (_relay.IsConnected) _ = _relay.SendToPeerAsync(peer.Id, ack);
+                else _ = _session.SendSignalAsync(peer, ack);
+            }
         }
         else
         {
