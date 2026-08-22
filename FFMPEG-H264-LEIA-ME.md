@@ -4,24 +4,28 @@ O compartilhamento de tela agora usa **H264** (via FFmpeg), com bitrate alto
 (~3,5 Mbps) para o 720p ficar nítido. Isso exige as **bibliotecas nativas do FFmpeg**
 junto do app — é uma vez só de configuração.
 
-## 1. Baixar o FFmpeg (build "shared", 64-bit, versão 7.x)
-Baixe uma build **shared** do FFmpeg 7.x para Windows x64. Opções:
-- https://www.gyan.dev/ffmpeg/builds/  → pegue "ffmpeg-release-full-shared" (7.x)
-- ou https://github.com/BtbN/FFmpeg-Builds/releases → "ffmpeg-n7.x-win64-gpl-shared"
+## Jeito fácil (recomendado): script automático
+Duplo-clique em **`baixar-ffmpeg.bat`**. Ele baixa a build correta do FFmpeg
+(**shared, 64-bit, 8.x**) e copia os `.dll` para `src\NyxarConcord\ffmpeg\` sozinho.
+Depois é só recompilar o app.
 
-> Precisa ser **shared** (tem uma pasta `bin` cheia de `.dll`). A versão "static"
-> não serve. Use a **GPL/full** para ter o codificador H264 (libx264).
+> Importante: o pacote usado (SIPSorceryMedia.FFmpeg 10.0.16) precisa do **FFmpeg 8.x**
+> (não 7.x). O script já pega a versão certa.
 
-## 2. Copiar as DLLs para o projeto
-Descompacte e copie **todos os `.dll`** da pasta `bin` do FFmpeg para:
-```
-C:\Users\Roberto\source\repos\Nyxar Concord\src\NyxarConcord\ffmpeg\
-```
-(São arquivos como `avcodec-61.dll`, `avformat-61.dll`, `avutil-59.dll`,
-`swscale-8.dll`, `swresample-5.dll`, `avfilter-10.dll`, `avdevice-61.dll`.)
+## Jeito manual (se preferir)
+1. Baixe uma build **shared** do FFmpeg **8.x** para Windows x64
+   (ex.: https://github.com/BtbN/FFmpeg-Builds/releases → `ffmpeg-n8.x-...-win64-gpl-shared.zip`).
+   Precisa ser **shared** (tem uma pasta `bin` cheia de `.dll`) e **GPL/full** (tem o H264).
+2. Copie **todos os `.dll`** da pasta `bin` para:
+   ```
+   C:\Users\Roberto\source\repos\Nyxar Concord\src\NyxarConcord\ffmpeg\
+   ```
+   (São arquivos como `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`,
+   `swscale-9.dll`, `swresample-6.dll`, `avfilter-11.dll`, `avdevice-62.dll`.)
 
-O `.csproj` já tem uma regra que **copia essa pasta `ffmpeg\` para a saída** ao
-compilar — então elas vão junto no debug e no `dotnet publish` (e no `.zip` do release).
+Em ambos os casos, o `.csproj` já tem uma regra que **copia a pasta `ffmpeg\` para a
+saída** ao compilar — então as DLLs vão junto no debug, no `dotnet publish` e no
+`.zip`/instalador do release.
 
 ## 3. Compilar
 Abra no Visual Studio e recompile. Na primeira chamada de vídeo, o app inicializa o
