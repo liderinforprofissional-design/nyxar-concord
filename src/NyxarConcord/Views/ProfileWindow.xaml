@@ -74,9 +74,11 @@
                     </Button>
                     <TextBox x:Name="MsgInput" Grid.Column="1" Style="{StaticResource ChatTextBox}"
                              KeyDown="MsgInput_KeyDown" />
-                    <Button Grid.Column="2" Width="44" Margin="8,0,0,0" Style="{StaticResource AccentButton}"
-                            Click="Send_Click" ToolTip="Enviar (Enter)">
-                        <Path Data="{StaticResource Icon.Send}" Fill="White" Width="18" Height="18" Stretch="Uniform" />
+                    <Button Grid.Column="2" Width="44" Height="40" Padding="0" Margin="8,0,0,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                            Style="{StaticResource AccentButton}" Click="Send_Click" ToolTip="Enviar (Enter)">
+                        <Path Data="{StaticResource Icon.Send}" Fill="White" Width="18" Height="18" Stretch="Uniform"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
                 </Grid>
             </Border>

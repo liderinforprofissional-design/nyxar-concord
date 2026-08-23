@@ -115,7 +115,12 @@
             </ScrollViewer>
 
             <Border Grid.Row="2" Padding="24,14">
-                <Button Content="Fechar" Style="{StaticResource GhostButton}" HorizontalAlignment="Right" Click="Close_Click" />
+                <Grid>
+                    <TextBlock x:Name="Notice" VerticalAlignment="Center" HorizontalAlignment="Left"
+                               FontSize="12" TextWrapping="Wrap" MaxWidth="230"
+                               Foreground="{StaticResource Text.Muted}" Visibility="Collapsed" />
+                    <Button Content="Fechar" Style="{StaticResource GhostButton}" HorizontalAlignment="Right" Click="Close_Click" />
+                </Grid>
             </Border>
         </Grid>
     </Border>

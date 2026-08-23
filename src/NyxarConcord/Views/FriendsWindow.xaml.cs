@@ -31,12 +31,13 @@ public partial class FriendsWindow : Window
             var peer = _vm.Peers.FirstOrDefault(p => p.Peer.Id == f.Id);
             if (peer is not null)
             {
+                Notice.Visibility = Visibility.Collapsed;
                 new ProfileWindow(_vm, peer) { Owner = this }.ShowDialog();
             }
             else
             {
-                MessageBox.Show(this, $"{f.Name} está offline no momento.", "Amigos",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                Notice.Text = $"{f.Name} está offline no momento.";
+                Notice.Visibility = Visibility.Visible;
             }
         }
     }

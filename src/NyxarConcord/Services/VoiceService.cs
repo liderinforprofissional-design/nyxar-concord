@@ -348,16 +348,21 @@ public sealed class VoiceService : IDisposable
         if (prov is null || buf is null) return;
         try
         {
-            // Só puxa se há dados de verdade (evita mandar silêncio o tempo todo).
-            while (buf.BufferedBytes > 0)
+            // Envia no MÁXIMO 2 quadros por tique (evita "rajada" que atropela a voz
+            // na fila do relay). Se acumulou muito, descarta o excedente.
+            int sent = 0;
+            while (buf.BufferedBytes > 0 && sent < 2)
             {
                 var frame = new byte[DesktopFrameBytes];
                 int got = prov.Read(frame, 0, frame.Length);
                 if (got <= 0) break;
-                if (DesktopAudioMuted) continue; // usuário mutou o áudio da transmissão
+                if (DesktopAudioMuted) { sent++; continue; }
                 if (got < frame.Length) Array.Clear(frame, got, frame.Length - got);
                 FrameCaptured?.Invoke(frame); // vai como voz minha -> ouvintes escutam
+                sent++;
             }
+            // Se sobrou áudio atrasado demais no buffer, joga fora para não acumular latência.
+            if (buf.BufferedBytes > buf.WaveFormat.AverageBytesPerSecond) buf.ClearBuffer();
         }
         catch { }
     }

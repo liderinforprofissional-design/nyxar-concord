@@ -1553,12 +1553,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return Task.CompletedTask;
     }
 
-    // ~12 quadros/s; a checagem de "mudou" segura telas estáticas e o "drop se ocupado"
-    // impede que os quadros de tela engulam a fila do relay e travem a voz.
+    // A transmissão tem um TETO DE BANDA para não estourar o upload de quem
+    // transmite (senão trava a voz e dá lag/perda de pacote no jogo).
     private int _screenSending; // 0 = livre, 1 = enviando
+    private long _bytesThisSec;
+    private DateTime _secStart;
+    // ~300 KB/s de tela (≈400 KB/s na rede com o base64). Bem mais seguro para jogar junto.
+    private const int ScreenMaxBytesPerSec = 300_000;
+
     private async Task ShareLoopAsync(string roomId, CancellationToken token)
     {
-        const int frameMs = 33; // ~30 fps (o "descarta se ocupado" protege a voz)
+        const int frameMs = 66; // ~15 fps de teto; o teto de banda reduz mais se precisar
+        _bytesThisSec = 0; _secStart = DateTime.UtcNow;
         var sw = new System.Diagnostics.Stopwatch();
         while (!token.IsCancellationRequested && IsSharingScreen)
         {
@@ -1579,7 +1585,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (System.Threading.Interlocked.CompareExchange(ref _screenSending, 1, 0) == 1) return;
         try
         {
-            byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 42);
+            byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 38);
             if (jpeg is null) { _screenSending = 0; return; }
 
             // Só envia se a tela mudou; keyframe a cada 2s (pra quem entra no meio).
@@ -1587,6 +1593,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool changed = hash != _lastFrameHash;
             bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
             if (!changed && !keyframe) { _screenSending = 0; return; }
+
+            // Teto de banda: se já mandei muito neste segundo, pula o quadro.
+            var now = DateTime.UtcNow;
+            if ((now - _secStart).TotalSeconds >= 1) { _secStart = now; _bytesThisSec = 0; }
+            if (_bytesThisSec + jpeg.Length > ScreenMaxBytesPerSec) { _screenSending = 0; return; }
+            _bytesThisSec += jpeg.Length;
+
             _lastFrameHash = hash;
             _lastFrameSentAt = DateTime.UtcNow;
 

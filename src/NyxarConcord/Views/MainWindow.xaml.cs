@@ -73,7 +73,72 @@ public partial class MainWindow : Window
 
         // Verifica atualizações no GitHub após a janela abrir (silencioso se falhar).
         Loaded += async (_, _) => await CheckForUpdatesAsync();
+
+        // Barra de título personalizada: maximizar respeitando a barra de tarefas.
+        SourceInitialized += (_, _) =>
+        {
+            var src = System.Windows.Interop.HwndSource.FromHwnd(
+                new System.Windows.Interop.WindowInteropHelper(this).Handle);
+            src?.AddHook(WndProc);
+        };
+        StateChanged += (_, _) => UpdateMaxGlyph();
+        Loaded += (_, _) => UpdateMaxGlyph();
     }
+
+    private void UpdateMaxGlyph()
+    {
+        if (MaxBtn is not null)
+            MaxBtn.Content = WindowState == WindowState.Maximized ? "\uE923" : "\uE922";
+    }
+
+    // --- Barra de título (min/max/fechar) ---
+    private void Min_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Max_Click(object sender, RoutedEventArgs e)
+        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void WindowClose_Click(object sender, RoutedEventArgs e) => Close();
+
+    // Faz o "maximizar" ocupar só a área útil (sem cobrir a barra de tarefas / sem cortar).
+    private System.IntPtr WndProc(System.IntPtr hwnd, int msg, System.IntPtr wParam, System.IntPtr lParam, ref bool handled)
+    {
+        const int WM_GETMINMAXINFO = 0x0024;
+        if (msg == WM_GETMINMAXINFO)
+        {
+            var mmi = System.Runtime.InteropServices.Marshal.PtrToStructure<MINMAXINFO>(lParam);
+            System.IntPtr mon = MonitorFromWindow(hwnd, 2 /*NEAREST*/);
+            if (mon != System.IntPtr.Zero)
+            {
+                var mi = new MONITORINFO();
+                mi.cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(MONITORINFO));
+                if (GetMonitorInfo(mon, ref mi))
+                {
+                    RECT work = mi.rcWork, area = mi.rcMonitor;
+                    mmi.ptMaxPosition.X = work.left - area.left;
+                    mmi.ptMaxPosition.Y = work.top - area.top;
+                    mmi.ptMaxSize.X = work.right - work.left;
+                    mmi.ptMaxSize.Y = work.bottom - work.top;
+                    mmi.ptMinTrackSize.X = (int)MinWidth;
+                    mmi.ptMinTrackSize.Y = (int)MinHeight;
+                    System.Runtime.InteropServices.Marshal.StructureToPtr(mmi, lParam, true);
+                }
+            }
+            handled = true;
+        }
+        return System.IntPtr.Zero;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern System.IntPtr MonitorFromWindow(System.IntPtr hwnd, int flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool GetMonitorInfo(System.IntPtr hMonitor, ref MONITORINFO mi);
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RECT { public int left, top, right, bottom; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MINMAXINFO { public POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public int dwFlags; }
 
     private async System.Threading.Tasks.Task CheckForUpdatesAsync()
     {
