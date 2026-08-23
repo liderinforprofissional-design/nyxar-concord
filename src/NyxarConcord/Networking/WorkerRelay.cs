@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.WebSockets;
 using System.Text.Json;
 using NyxarConcord.Models;
+using NyxarConcord.Services;
 
 namespace NyxarConcord.Networking;
 
@@ -51,14 +52,17 @@ public sealed class WorkerRelay : IDisposable
         _cts = new CancellationTokenSource();
         _ws = new ClientWebSocket();
         var uri = new Uri($"{WsBase}?room={Uri.EscapeDataString(room)}&peer={Uri.EscapeDataString(_selfId)}");
+        Diag.Log("RELAY", $"Conectando à sala do relay: {room}");
         try
         {
             await _ws.ConnectAsync(uri, _cts.Token);
+            Diag.Log("RELAY", $"Conectado ao relay (sala {room})");
             _ = ReceiveLoopAsync(_cts.Token);
             await SendHelloAsync();
         }
-        catch
+        catch (Exception ex)
         {
+            Diag.Log("RELAY", $"Falha ao conectar no relay: {ex.Message}");
             // sem internet / worker indisponível — segue só na LAN
         }
     }
@@ -87,6 +91,9 @@ public sealed class WorkerRelay : IDisposable
     private async Task SendAsync(ChatMessage m)
     {
         if (_ws is not { State: WebSocketState.Open }) return;
+        // Loga tudo, menos o que é muito frequente (voz/tela/pedaços de arquivo).
+        if (m.Signal is not (SignalType.VoiceFrame or SignalType.ScreenFrame or SignalType.FileChunk))
+            Diag.Log("RELAY-TX", $"{m.Kind}/{m.Signal} to={m.To ?? "(sala)"} room={m.RoomId}");
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(m);
         await _sendLock.WaitAsync();
         try { await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None); }
@@ -129,6 +136,7 @@ public sealed class WorkerRelay : IDisposable
             if (root.TryGetProperty("type", out var typeEl))
             {
                 string? type = typeEl.GetString();
+                Diag.Log("RELAY-RX", $"ctrl={type}");
                 if (type == "join")
                     _ = SendHelloAsync(); // me apresento a quem acabou de entrar
                 else if (type == "leave" && root.TryGetProperty("from", out var f))
@@ -140,6 +148,9 @@ public sealed class WorkerRelay : IDisposable
             if (msg is null) return;
             string from = string.IsNullOrEmpty(msg.From) ? msg.SenderId : msg.From!;
             if (from == _selfId) return; // ignora eco
+
+            if (msg.Signal is not (SignalType.VoiceFrame or SignalType.ScreenFrame or SignalType.FileChunk))
+                Diag.Log("RELAY-RX", $"{msg.Kind}/{msg.Signal} from={from} to={msg.To ?? "(sala)"} room={msg.RoomId}");
 
             if (msg.Kind == MessageKind.Hello)
                 PeerHello?.Invoke(from, msg.SenderName, msg.Handle ?? "");

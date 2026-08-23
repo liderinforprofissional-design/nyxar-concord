@@ -364,6 +364,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void JoinRoom(Room room)
     {
+        Diag.Log("ROOM", $"Abrindo sala '{room.Name}' ({room.Id}), audio={room.IsAudio}");
         // Moderação: banido ou trancado?
         if (room.BannedIds.Contains(SelfId))
         {
@@ -469,6 +470,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         };
         Messages.Add(mine);
         _sfx.MessageSent();
+        Diag.Log("MSG-TX", $"enviando ({text.Length} chars) selfNotes={_isSelfNotes} peer={_selectedPeer?.Peer.Id ?? "(nenhum)"} room={_currentRoom?.Id ?? "(nenhuma)"}");
 
         if (_isSelfNotes)
         {
@@ -1155,6 +1157,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OnRelayHello(string id, string name, string handle)
     {
+        Diag.Log("HELLO", $"{name}/{id}");
         Application.Current.Dispatcher.Invoke(() =>
         {
             var peer = GetRelayPeer(id, name, handle);
@@ -1175,6 +1178,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OnRelayLeft(string id)
     {
+        Diag.Log("LEFT", id);
         Application.Current.Dispatcher.Invoke(() =>
         {
             if (_currentServer is not null)
@@ -1196,12 +1200,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void OnRelayMessage(string fromId, ChatMessage msg)
     {
         var peer = GetRelayPeer(fromId, msg.SenderName);
-        if (msg.Kind == MessageKind.Text) OnMessageReceived(peer, msg);
-        else OnSignalReceived(peer, msg);
+        // Só é chat de verdade quando NÃO há sinal. Voz, tela, presença de sala e
+        // arquivos chegam com Signal setado (o Kind pode vir como Text pelo relay),
+        // então roteamos pelo Signal — senão eles caem no chat (o "flood").
+        if (msg.Signal == SignalType.None && msg.Kind == MessageKind.Text)
+            OnMessageReceived(peer, msg);
+        else
+            OnSignalReceived(peer, msg);
     }
 
     private void OnMessageReceived(Peer peer, ChatMessage msg)
     {
+        Diag.Log("MSG-RX", $"de {peer.DisplayName}/{peer.Id} ({(msg.Text ?? "").Length} chars)");
         Application.Current.Dispatcher.Invoke(() =>
         {
             _sfx.MessageReceived();
@@ -1315,8 +1325,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void HandleChannelPresence(Peer peer, ChatMessage msg, bool joined)
     {
+        Diag.Log("PRESENCE", $"{(joined ? "JOIN" : "LEAVE")} de {peer.DisplayName}/{peer.Id} sala={msg.RoomId} to={msg.To ?? "(broadcast)"} minhaSala={_currentRoom?.Id}");
         var room = FindChannel(msg.RoomId);
-        if (room is null) return;
+        if (room is null) { Diag.Log("PRESENCE", $"sala {msg.RoomId} nao encontrada localmente"); return; }
         if (joined)
         {
             if (room.Members.All(m => m.PeerId != peer.Id))
@@ -1326,6 +1337,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // respondo direto pra ele saber que eu também estou aqui.
             if (_currentRoom?.Id == room.Id && string.IsNullOrEmpty(msg.To) && peer.Id != SelfId)
             {
+                Diag.Log("PRESENCE", $"respondendo (ack) minha presenca para {peer.DisplayName}");
                 var ack = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId };
                 if (_relay.IsConnected) _ = _relay.SendToPeerAsync(peer.Id, ack);
                 else _ = _session.SendSignalAsync(peer, ack);
