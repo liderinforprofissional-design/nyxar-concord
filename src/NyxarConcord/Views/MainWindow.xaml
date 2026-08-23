@@ -191,6 +191,8 @@
                                                                                     Stretch="UniformToFill" />
                                                                     </Ellipse.Fill>
                                                                 </Ellipse>
+                                                                <Ellipse Width="22" Height="22" Stroke="{StaticResource Online}" StrokeThickness="2"
+                                                                         Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
                                                             </Grid>
                                                             <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
                                                                        Foreground="{StaticResource Text.Muted}" FontSize="12"
@@ -633,6 +635,31 @@
                             </Border>
                         </Grid>
 
+                        <!-- Headset: silenciar o áudio do PC na transmissão (verde = ligado, vermelho = mudo) -->
+                        <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="16"
+                                Cursor="Hand" Click="ShareAudio_Click" ToolTip="{Binding ShareAudioTip}"
+                                Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="hb" Width="46" Height="46" CornerRadius="12"
+                                            Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="hb" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Grid>
+                                <Path Width="22" Height="22" Stretch="Uniform" Fill="{StaticResource Online}" Data="{StaticResource Icon.Headset}"
+                                      Visibility="{Binding IsShareAudioMuted, Converter={StaticResource InverseBoolToVis}}" />
+                                <Path Width="22" Height="22" Stretch="Uniform" Fill="{StaticResource Badge}" Data="{StaticResource Icon.HeadsetOff}"
+                                      Visibility="{Binding IsShareAudioMuted, Converter={StaticResource BoolToVis}}" />
+                            </Grid>
+                        </Button>
+
                         <!-- Barra de controle -->
                         <Border Grid.Row="1" Background="{StaticResource Bg.Dark}" Padding="14,10">
                             <Grid>
@@ -682,6 +709,8 @@
                                                                     Stretch="UniformToFill" />
                                                     </Ellipse.Fill>
                                                 </Ellipse>
+                                                <Ellipse Width="98" Height="98" Stroke="{StaticResource Online}" StrokeThickness="3"
+                                                         Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
                                             </Grid>
                                             <!-- Nome + ícones de mudo -->
                                             <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="10"
@@ -697,11 +726,38 @@
                                                 </StackPanel>
                                             </Border>
                                             <!-- Selo AO VIVO -->
-                                            <Border VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
+                                            <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10"
                                                     Background="{StaticResource Badge}" CornerRadius="5" Padding="6,2"
                                                     Visibility="{Binding IsSharing, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock Text="AO VIVO" Foreground="White" FontSize="9" FontWeight="Bold" />
                                             </Border>
+                                            <!-- Headset (só no meu card ao transmitir): verde ligado / vermelho mudo -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
+                                                    Cursor="Hand" Click="ShareAudio_Click"
+                                                    ToolTip="{Binding DataContext.ShareAudioTip, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    Visibility="{Binding ShowSelfShareControl, Converter={StaticResource BoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="gh" Width="40" Height="40" CornerRadius="11"
+                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="gh" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <Grid>
+                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Online}"
+                                                          Data="{StaticResource Icon.Headset}"
+                                                          Visibility="{Binding DataContext.IsShareAudioMuted, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource InverseBoolToVis}}" />
+                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}"
+                                                          Data="{StaticResource Icon.HeadsetOff}"
+                                                          Visibility="{Binding DataContext.IsShareAudioMuted, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                                                </Grid>
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -769,6 +825,8 @@
                                                             Stretch="UniformToFill" />
                                             </Ellipse.Fill>
                                         </Ellipse>
+                                        <Ellipse Stroke="{StaticResource Online}" StrokeThickness="2"
+                                                 Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
                                         <Ellipse Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                  Fill="{StaticResource Online}" Stroke="{StaticResource Bg.Dark}" StrokeThickness="2" />
                                     </Grid>
@@ -801,5 +859,46 @@
                 </DockPanel>
             </Border>
         </Grid>
+
+        <!-- ==================== CAIXA FLUTUANTE DE ATUALIZAÇÃO ==================== -->
+        <Border Grid.Column="0" Grid.ColumnSpan="3" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,24,24" Width="320" CornerRadius="14" Background="{StaticResource Bg.Card}"
+                BorderBrush="{StaticResource Accent.Line}" BorderThickness="1"
+                Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.5" Color="#000000" />
+            </Border.Effect>
+            <StackPanel Margin="18,16">
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="34" Height="34" CornerRadius="10" Background="{StaticResource Brand.Gradient}"
+                            VerticalAlignment="Center">
+                        <Path Data="{StaticResource Icon.Globe}" Fill="White" Width="18" Height="18"
+                              Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Atualização disponível" FontWeight="Bold" FontSize="14"
+                                   Foreground="{StaticResource Text.Primary}" />
+                        <TextBlock Text="{Binding UpdateVersionText}" FontSize="11"
+                                   Foreground="{StaticResource Text.Muted}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Progresso (durante o download) -->
+                <StackPanel Margin="0,14,0,0"
+                            Visibility="{Binding IsUpdating, Converter={StaticResource BoolToVis}}">
+                    <ProgressBar Value="{Binding UpdateProgress, Mode=OneWay}" Minimum="0" Maximum="1" Height="8"
+                                 Background="{StaticResource Bg.Input}" Foreground="{StaticResource Accent}" BorderThickness="0" />
+                    <TextBlock Text="{Binding UpdateStatus}" FontSize="11" Margin="0,6,0,0"
+                               Foreground="{StaticResource Text.Muted}" />
+                </StackPanel>
+
+                <!-- Botões -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0"
+                            Visibility="{Binding ShowUpdateButtons, Converter={StaticResource BoolToVis}}">
+                    <Button Content="Depois" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="UpdateLater_Click" />
+                    <Button Content="Atualizar" Style="{StaticResource AccentButton}" Click="Update_Click" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>

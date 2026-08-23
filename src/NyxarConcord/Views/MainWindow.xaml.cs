@@ -79,50 +79,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            var svc = new UpdateService();
-            var info = await svc.CheckAsync();
-            if (info is null) return;
-
-            // Se o release tem o instalador (.exe), atualizamos NO LUGAR (sem reinstalar do zero).
-            if (!string.IsNullOrEmpty(info.AssetUrl))
-            {
-                var r = MessageBox.Show(
-                    $"Uma nova versão está disponível: v{info.Version}\n" +
-                    $"Você está na v{UpdateService.CurrentVersion}.\n\n" +
-                    "Deseja atualizar agora? O app fecha, atualiza e reabre sozinho.",
-                    "Atualização disponível", MessageBoxButton.YesNo, MessageBoxImage.Information);
-                if (r != MessageBoxResult.Yes) return;
-
-                string? setup = await svc.DownloadInstallerAsync(info.AssetUrl);
-                if (setup is null)
-                {
-                    MessageBox.Show("Não foi possível baixar a atualização. Tente novamente mais tarde.",
-                        "Atualização", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                // Roda o instalador em silêncio: ele fecha o app, atualiza e reabre.
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(setup)
-                {
-                    UseShellExecute = true,
-                    Arguments = "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /NORESTART"
-                });
-                Application.Current.Shutdown();
-                return;
-            }
-
-            // Sem instalador no release: cai no fluxo antigo (abre a página).
-            var r2 = MessageBox.Show(
-                $"Uma nova versão do Nyxar Concord está disponível: v{info.Version}\n" +
-                $"Você está na v{UpdateService.CurrentVersion}.\n\n" +
-                "Deseja abrir a página de download?",
-                "Atualização disponível", MessageBoxButton.YesNo, MessageBoxImage.Information);
-
-            if (r2 == MessageBoxResult.Yes && !string.IsNullOrEmpty(info.Url))
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true });
+            var info = await new UpdateService().CheckAsync();
+            if (info is not null) _vm.SetUpdateAvailable(info); // mostra a caixa flutuante
         }
         catch { }
     }
+
+    private void Update_Click(object sender, RoutedEventArgs e) => _ = _vm.StartUpdateAsync();
+    private void UpdateLater_Click(object sender, RoutedEventArgs e) => _vm.DismissUpdate();
 
     private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e) => MessageScroll.ScrollToEnd();
 
@@ -234,6 +198,7 @@ public partial class MainWindow : Window
     }
 
     private void StopShare_Click(object sender, RoutedEventArgs e) => _vm.StopScreenShare();
+    private void ShareAudio_Click(object sender, RoutedEventArgs e) => _vm.ToggleShareAudio();
 
     // --- Galeria de participantes ---
     private void ToggleGallery_Click(object sender, RoutedEventArgs e) => _vm.ToggleGalleryView();

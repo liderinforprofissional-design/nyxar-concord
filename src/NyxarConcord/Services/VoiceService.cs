@@ -49,8 +49,48 @@ public sealed class VoiceService : IDisposable
 
     public bool IsRunning { get; private set; }
 
+    /// <summary>Id do próprio usuário (para o indicador de "falando").</summary>
+    public string SelfId { get; set; } = "";
+
     /// <summary>Um quadro de áudio capturado do microfone (PCM 16-bit).</summary>
     public event Action<byte[]>? FrameCaptured;
+
+    /// <summary>Alguém começou/parou de falar (id do participante, falando?).</summary>
+    public event Action<string, bool>? SpeakingChanged;
+
+    // --- Detecção de "falando" (indicador verde) ---
+    private readonly object _spkLock = new();
+    private readonly Dictionary<string, bool> _speaking = new();
+    private readonly Dictionary<string, DateTime> _lastVoiceAt = new();
+    private System.Timers.Timer? _spkSweep;
+    private const double SpeakRms = 550;      // energia mínima para "falando"
+    private const int SpeakHoldMs = 350;      // mantém aceso por um tempinho após a fala
+
+    private void MarkVoice(string id)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        bool raise = false;
+        lock (_spkLock)
+        {
+            _lastVoiceAt[id] = DateTime.UtcNow;
+            if (!_speaking.TryGetValue(id, out var sp) || !sp) { _speaking[id] = true; raise = true; }
+        }
+        if (raise) SpeakingChanged?.Invoke(id, true);
+    }
+
+    private void SweepSpeaking()
+    {
+        var stopped = new List<string>();
+        lock (_spkLock)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var kv in _speaking)
+                if (kv.Value && _lastVoiceAt.TryGetValue(kv.Key, out var t)
+                    && (now - t).TotalMilliseconds > SpeakHoldMs) stopped.Add(kv.Key);
+            foreach (var id in stopped) _speaking[id] = false;
+        }
+        foreach (var id in stopped) SpeakingChanged?.Invoke(id, false);
+    }
 
     public void Start(int inputDeviceNumber = -1)
     {
@@ -75,6 +115,10 @@ public sealed class VoiceService : IDisposable
             _mic.DataAvailable += OnMicData;
             _mic.StartRecording();
             IsRunning = true;
+
+            _spkSweep = new System.Timers.Timer(150) { AutoReset = true };
+            _spkSweep.Elapsed += (_, _) => SweepSpeaking();
+            _spkSweep.Start();
         }
         catch
         {
@@ -88,6 +132,9 @@ public sealed class VoiceService : IDisposable
 
         var buffer = new byte[e.BytesRecorded];
         Array.Copy(e.Buffer, buffer, e.BytesRecorded);
+
+        // Indicador "falando": energia acima do piso conta como fala.
+        if (Rms(buffer) > SpeakRms) MarkVoice(SelfId);
 
         // Sem supressão: envia direto.
         if (!NoiseSuppression) { FrameCaptured?.Invoke(buffer); return; }
@@ -208,6 +255,9 @@ public sealed class VoiceService : IDisposable
     /// <summary>Reproduz um quadro recebido de um participante (mixado).</summary>
     public void PlayFrom(string peerId, byte[] pcm)
     {
+        // Indicador "falando" do participante remoto.
+        if (Rms(pcm) > SpeakRms) MarkVoice(peerId);
+
         lock (_lock)
         {
             if (_mixer is null) return;
@@ -229,6 +279,10 @@ public sealed class VoiceService : IDisposable
     public void Stop()
     {
         IsRunning = false;
+        StopDesktopAudio();
+        try { _spkSweep?.Stop(); _spkSweep?.Dispose(); } catch { }
+        _spkSweep = null;
+        lock (_spkLock) { _speaking.Clear(); _lastVoiceAt.Clear(); }
         try { _mic?.StopRecording(); } catch { }
         _mic?.Dispose();
         _mic = null;
@@ -239,6 +293,107 @@ public sealed class VoiceService : IDisposable
         {
             _inputs.Clear();
             _mixer = null;
+        }
+    }
+
+    // ============================================================
+    //  Áudio do computador (loopback) — para a transmissão de tela
+    // ============================================================
+    private WasapiLoopbackCapture? _loopback;
+    private BufferedWaveProvider? _loopBuf;
+    private IWaveProvider? _loop16;        // saída já em 16 kHz mono 16-bit
+
+    /// <summary>Silencia o áudio do computador na transmissão (sem parar a captura).</summary>
+    public bool DesktopAudioMuted { get; set; }
+    private System.Timers.Timer? _loopTimer;
+    private const int DesktopFrameBytes = 1280; // 40 ms @ 16 kHz mono 16-bit
+
+    /// <summary>Captura o áudio que sai do computador (vídeos/jogo) e envia junto.</summary>
+    public void StartDesktopAudio()
+    {
+        StopDesktopAudio();
+        try
+        {
+            _loopback = new WasapiLoopbackCapture();
+            _loopBuf = new BufferedWaveProvider(_loopback.WaveFormat)
+            {
+                DiscardOnBufferOverflow = true,
+                BufferDuration = TimeSpan.FromSeconds(2)
+            };
+            _loopback.DataAvailable += (_, e) => _loopBuf?.AddSamples(e.Buffer, 0, e.BytesRecorded);
+
+            // Cadeia 100% gerenciada: float (N canais) -> mono -> 16 kHz -> PCM16.
+            ISampleProvider sp = _loopBuf.ToSampleProvider();
+            if (sp.WaveFormat.Channels != 1) sp = new DownmixToMonoSampleProvider(sp);
+            sp = new WdlResamplingSampleProvider(sp, 16000);
+            _loop16 = new SampleToWaveProvider16(sp);
+
+            _loopback.StartRecording();
+            _loopTimer = new System.Timers.Timer(40) { AutoReset = true };
+            _loopTimer.Elapsed += (_, _) => PumpDesktopAudio();
+            _loopTimer.Start();
+        }
+        catch { StopDesktopAudio(); } // sem loopback disponível: segue sem o áudio do PC
+    }
+
+    private void PumpDesktopAudio()
+    {
+        var prov = _loop16;
+        var buf = _loopBuf;
+        if (prov is null || buf is null) return;
+        try
+        {
+            // Só puxa se há dados de verdade (evita mandar silêncio o tempo todo).
+            while (buf.BufferedBytes > 0)
+            {
+                var frame = new byte[DesktopFrameBytes];
+                int got = prov.Read(frame, 0, frame.Length);
+                if (got <= 0) break;
+                if (DesktopAudioMuted) continue; // usuário mutou o áudio da transmissão
+                if (got < frame.Length) Array.Clear(frame, got, frame.Length - got);
+                FrameCaptured?.Invoke(frame); // vai como voz minha -> ouvintes escutam
+            }
+        }
+        catch { }
+    }
+
+    public void StopDesktopAudio()
+    {
+        try { _loopTimer?.Stop(); _loopTimer?.Dispose(); } catch { }
+        _loopTimer = null;
+        try { _loopback?.StopRecording(); } catch { }
+        try { _loopback?.Dispose(); } catch { }
+        _loopback = null;
+        _loop16 = null;
+        _loopBuf = null;
+    }
+
+    /// <summary>Mistura todos os canais num só (média) — para qualquer nº de canais.</summary>
+    private sealed class DownmixToMonoSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _src;
+        private readonly int _ch;
+        private float[] _buf = Array.Empty<float>();
+        public DownmixToMonoSampleProvider(ISampleProvider src)
+        {
+            _src = src;
+            _ch = src.WaveFormat.Channels;
+            WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(src.WaveFormat.SampleRate, 1);
+        }
+        public WaveFormat WaveFormat { get; }
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int need = count * _ch;
+            if (_buf.Length < need) _buf = new float[need];
+            int read = _src.Read(_buf, 0, need);
+            int frames = read / _ch;
+            for (int i = 0; i < frames; i++)
+            {
+                float sum = 0;
+                for (int c = 0; c < _ch; c++) sum += _buf[i * _ch + c];
+                buffer[offset + i] = sum / _ch;
+            }
+            return frames;
         }
     }
 

@@ -32,14 +32,20 @@ public sealed class GalleryTile : ObservableObject
     public bool IsSharing
     {
         get => _isSharing;
-        set { if (SetProperty(ref _isSharing, value)) OnPropertyChanged(nameof(ShowAvatar)); }
+        set { if (SetProperty(ref _isSharing, value)) { OnPropertyChanged(nameof(ShowAvatar)); OnPropertyChanged(nameof(ShowSelfShareControl)); } }
     }
+
+    /// <summary>Mostra o controle de áudio da transmissão só no meu próprio card, quando transmito.</summary>
+    public bool ShowSelfShareControl => IsSelf && _isSharing;
 
     private bool _isMuted;
     public bool IsMuted { get => _isMuted; set => SetProperty(ref _isMuted, value); }
 
     private bool _isMutedByMe;
     public bool IsMutedByMe { get => _isMutedByMe; set => SetProperty(ref _isMutedByMe, value); }
+
+    private bool _isSpeaking;
+    public bool IsSpeaking { get => _isSpeaking; set => SetProperty(ref _isSpeaking, value); }
 
     /// <summary>Mostra o avatar quando NÃO há transmissão com quadro pronto.</summary>
     public bool ShowAvatar => !(_isSharing && _frame is not null);

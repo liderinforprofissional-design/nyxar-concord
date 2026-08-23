@@ -65,7 +65,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Session.SelfId = identity.PeerId;
 
         _voice.NoiseSuppression = identity.Audio.NoiseSuppression;
+        _voice.SelfId = identity.PeerId;
         _voice.FrameCaptured += OnVoiceCaptured;
+        _voice.SpeakingChanged += OnSpeakingChanged;
 
         _sfx.Enabled = identity.SoundsEnabled;
 
@@ -406,6 +408,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => _isSharingScreen;
         set { if (SetProperty(ref _isSharingScreen, value)) OnPropertyChanged(nameof(CanShareScreen)); }
+    }
+
+    private bool _isShareAudioMuted;
+    public bool IsShareAudioMuted
+    {
+        get => _isShareAudioMuted;
+        private set { if (SetProperty(ref _isShareAudioMuted, value)) OnPropertyChanged(nameof(ShareAudioTip)); }
+    }
+    public string ShareAudioTip => _isShareAudioMuted ? "Ativar áudio do computador na transmissão"
+                                                      : "Silenciar áudio do computador na transmissão";
+
+    /// <summary>Liga/desliga o envio do áudio do computador durante a transmissão.</summary>
+    public void ToggleShareAudio()
+    {
+        IsShareAudioMuted = !IsShareAudioMuted;
+        _voice.DesktopAudioMuted = _isShareAudioMuted;
+        if (_isShareAudioMuted) _sfx.MuteOn(); else _sfx.MuteOff();
     }
 
     public static string Initials(string? name)
@@ -905,6 +924,90 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     // ============================================================
+    //  Atualização in-app (caixa flutuante)
+    // ============================================================
+
+    private UpdateInfo? _pendingUpdate;
+    private bool _updateDismissed;
+
+    public bool UpdateAvailable => _pendingUpdate is not null && !_updateDismissed;
+    public string UpdateVersionText => _pendingUpdate is null ? "" : $"Nova versão v{_pendingUpdate.Version} disponível";
+
+    private bool _isUpdating;
+    public bool IsUpdating { get => _isUpdating; private set { if (SetProperty(ref _isUpdating, value)) OnPropertyChanged(nameof(ShowUpdateButtons)); } }
+    public bool ShowUpdateButtons => !_isUpdating;
+
+    private double _updateProgress;
+    public double UpdateProgress { get => _updateProgress; private set => SetProperty(ref _updateProgress, value); }
+
+    private string _updateStatus = "";
+    public string UpdateStatus { get => _updateStatus; private set => SetProperty(ref _updateStatus, value); }
+
+    /// <summary>Mostra a caixa de atualização (chamado após checar o GitHub).</summary>
+    public void SetUpdateAvailable(UpdateInfo info)
+    {
+        _pendingUpdate = info;
+        _updateDismissed = false;
+        OnPropertyChanged(nameof(UpdateAvailable));
+        OnPropertyChanged(nameof(UpdateVersionText));
+    }
+
+    public void DismissUpdate()
+    {
+        _updateDismissed = true;
+        OnPropertyChanged(nameof(UpdateAvailable));
+    }
+
+    /// <summary>Baixa e instala a atualização com barra de progresso; reinicia sozinho.</summary>
+    public async Task StartUpdateAsync()
+    {
+        var info = _pendingUpdate;
+        if (info is null || _isUpdating) return;
+
+        // Sem instalador anexado ao release: abre a página como plano B.
+        if (string.IsNullOrEmpty(info.AssetUrl))
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true }); }
+            catch { }
+            return;
+        }
+
+        IsUpdating = true;
+        UpdateProgress = 0;
+        UpdateStatus = "Baixando… 0%";
+        var progress = new Progress<double>(p =>
+        {
+            UpdateProgress = p;
+            UpdateStatus = $"Baixando… {(int)(p * 100)}%";
+        });
+
+        string? setup = await new UpdateService().DownloadInstallerAsync(info.AssetUrl, progress);
+        if (setup is null)
+        {
+            IsUpdating = false;
+            UpdateStatus = "Falha ao baixar. Tente de novo.";
+            return;
+        }
+
+        UpdateProgress = 1;
+        UpdateStatus = "Concluído! Reiniciando…";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(setup)
+            {
+                UseShellExecute = true,
+                Arguments = "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /NORESTART"
+            });
+            Application.Current.Shutdown();
+        }
+        catch
+        {
+            IsUpdating = false;
+            UpdateStatus = "Não foi possível iniciar o instalador.";
+        }
+    }
+
+    // ============================================================
     //  Microfone
     // ============================================================
 
@@ -977,6 +1080,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         UpdateGalleryTile(peerId, t => t.IsMuted = muted);
     }
 
+    // Indicador "falando" (anel verde) — vem da VoiceService, aplica na UI.
+    private void OnSpeakingChanged(string peerId, bool speaking)
+    {
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            foreach (var m in AllMemberInstances(peerId)) m.IsSpeaking = speaking;
+            UpdateGalleryTile(peerId, t => t.IsSpeaking = speaking);
+        });
+    }
+
     // Silencia/reativa uma pessoa só para mim: áudio + ícone + som.
     public void TogglePeerMute(RoomMember member)
     {
@@ -1008,6 +1121,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(SelfAvatarPath));
         OnPropertyChanged(nameof(SelfInitials));
         OnPropertyChanged(nameof(SelfStatus));
+
+        // Atualiza meu próprio card/lista e avisa os outros da nova foto/nome na hora.
+        foreach (var m in AllMemberInstances(SelfId))
+        {
+            m.DisplayName = Identity.DisplayName;
+            m.AvatarPath = Identity.AvatarPath;
+        }
+        UpdateGalleryTile(SelfId, t => { t.Name = Identity.DisplayName; t.AvatarPath = Identity.AvatarPath; });
+        if (_currentServer is not null && _relay.IsConnected) AnnounceProfile(null);
     }
 
     private void OnVoiceCaptured(byte[] pcm)
@@ -1044,7 +1166,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // ============================================================
 
     private readonly ScreenCaptureService _capture = new();
-    private DispatcherTimer? _shareTimer;
+    private CancellationTokenSource? _shareCts;
     // Batimento de presença: reanuncia periodicamente que estou na sala, para
     // curar a lista de membros caso o relay tenha soltado/reconectado alguém.
     private DispatcherTimer? _presenceTimer;
@@ -1180,6 +1302,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 IsSharing = m.IsSharingScreen,
                 IsMuted = m.IsMuted,
                 IsMutedByMe = m.IsMutedByMe,
+                IsSpeaking = m.IsSpeaking,
                 Frame = Streams.FirstOrDefault(s => s.SharerId == m.PeerId)?.Frame
             };
             Gallery.Add(tile);
@@ -1318,6 +1441,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _shareSource = source;
         _shareMaxHeight = maxHeight;
         IsSharingScreen = true;
+        IsShareAudioMuted = false;          // começa transmitindo o som do PC
+        _voice.DesktopAudioMuted = false;
         SetMemberSharing(SelfId, true);
         GetOrCreateTile(SelfId, "Você", true);
         _inStage = true; // já mostra o palco para quem transmite
@@ -1328,35 +1453,41 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _lastFrameHash = 0;
         _lastFrameSentAt = DateTime.MinValue;
-        // ~10 fps — H264 comprime bem, então dá pra ser mais fluido que antes.
-        _shareTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        _shareTimer.Tick += (_, _) => CaptureAndSend();
-        _shareTimer.Start();
+        // Captura/codifica/envia numa thread própria (não trava a UI) => mais fluido.
+        _shareCts = new CancellationTokenSource();
+        string roomId = _currentRoom!.Id;
+        var token = _shareCts.Token;
+        _ = Task.Run(() => ShareLoopAsync(roomId, token));
+
+        // Também captura o áudio do computador (vídeos/jogo) para a transmissão.
+        _voice.StartDesktopAudio();
         return Task.CompletedTask;
     }
 
-    private void CaptureAndSend()
+    // Alvo de ~15 quadros/s; a checagem de "mudou" segura telas estáticas.
+    private async Task ShareLoopAsync(string roomId, CancellationToken token)
     {
-        if (!IsSharingScreen || _shareSource is null || _currentRoom is null) return;
-
-        // Caminho WebRTC: envia o vídeo (VP8) ponto-a-ponto, sem passar pelo relay.
-        if (_useWebRtcVoice && _webVoice.IsActive)
+        const int frameMs = 66; // ~15 fps
+        var sw = new System.Diagnostics.Stopwatch();
+        while (!token.IsCancellationRequested && IsSharingScreen)
         {
-            byte[]? bgr = _capture.CaptureBgr(_shareSource, _shareMaxHeight, out int vw, out int vh);
-            if (bgr is null) return;
-            var selfTile = Streams.FirstOrDefault(x => x.SharerId == SelfId);
-            var selfImg = BgrToBitmap(bgr, vw, vh, vw * 3);
-            if (selfTile is not null) selfTile.Frame = selfImg;
-            UpdateGalleryTile(SelfId, t => t.Frame = selfImg);
-            _ = System.Threading.Tasks.Task.Run(() => _webVoice.SendVideoFrame(bgr, vw, vh));
-            return;
+            sw.Restart();
+            try { CaptureAndSendOnce(roomId); } catch { }
+            int rest = frameMs - (int)sw.ElapsedMilliseconds;
+            try { await Task.Delay(rest > 0 ? rest : 1, token); }
+            catch (TaskCanceledException) { break; }
         }
+    }
 
-        byte[]? jpeg = _capture.CaptureJpeg(_shareSource, _shareMaxHeight);
+    private void CaptureAndSendOnce(string roomId)
+    {
+        var src = _shareSource;
+        if (!IsSharingScreen || src is null) return;
+
+        byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight);
         if (jpeg is null) return;
 
-        // Só envia se a tela mudou; mas manda um "keyframe" a cada 2s
-        // (pra quem entra no meio da transmissão receber o quadro atual).
+        // Só envia se a tela mudou; keyframe a cada 2s (pra quem entra no meio).
         ulong hash = FnvHash(jpeg);
         bool changed = hash != _lastFrameHash;
         bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
@@ -1364,28 +1495,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _lastFrameHash = hash;
         _lastFrameSentAt = DateTime.UtcNow;
 
-        var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
+        // Preview local (frozen -> pode cruzar para a UI).
         var selfFrame = DecodeJpeg(jpeg);
-        if (self is not null) self.Frame = selfFrame;
-        UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
-        string b64 = Convert.ToBase64String(jpeg);
-
-        if (_relay.IsConnected)
+        Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            _ = _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = _currentRoom.Id, Text = b64 });
-            return;
-        }
-        foreach (var p in ServerPeers())
-            _ = _session.SendSignalAsync(p, new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = _currentRoom.Id, Text = b64 });
+            var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
+            if (self is not null) self.Frame = selfFrame;
+            UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
+        });
+
+        string b64 = Convert.ToBase64String(jpeg);
+        if (_relay.IsConnected)
+            _ = _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
+        else
+            foreach (var p in ServerPeers())
+                _ = _session.SendSignalAsync(p, new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
     }
 
     public void StopScreenShare()
     {
         if (!IsSharingScreen) return;
-        _shareTimer?.Stop();
-        _shareTimer = null;
+        _shareCts?.Cancel();
+        _shareCts = null;
         _shareSource = null;
         IsSharingScreen = false;
+        _voice.StopDesktopAudio();
         SetMemberSharing(SelfId, false);
         RemoveTile(SelfId);
         Messages.Add(SystemMessage("🖥 Compartilhamento encerrado."));
