@@ -372,6 +372,11 @@ export class SignalRoom {
     const client = pair[0];
     const server = pair[1];
     server.accept();
+
+    // Reconexão: se já existe uma conexão para este mesmo peer, encerra a antiga
+    // ANTES de registrar a nova. Sem "self-leave" espúrio para os outros.
+    const old = this.sessions.get(peer);
+    if (old && old !== server) { try { old.close(1000, "reconnect"); } catch {} }
     this.sessions.set(peer, server);
 
     const others = [...this.sessions.keys()].filter((p) => p !== peer);
@@ -391,8 +396,13 @@ export class SignalRoom {
     });
 
     const close = () => {
-      this.sessions.delete(peer);
-      this.broadcast(peer, { type: "leave", from: peer });
+      // Só anuncia "leave" se ESTA conexão ainda for a atual do peer. Assim, o
+      // fechamento tardio de uma conexão antiga (após reconexão) não derruba o
+      // peer da sala dos outros — a causa do "sumiço" mesmo com voz ativa.
+      if (this.sessions.get(peer) === server) {
+        this.sessions.delete(peer);
+        this.broadcast(peer, { type: "leave", from: peer });
+      }
     };
     server.addEventListener("close", close);
     server.addEventListener("error", close);

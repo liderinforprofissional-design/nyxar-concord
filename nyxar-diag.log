@@ -1,0 +1,13 @@
+﻿23:14:22.391 [APP] ==== Nyxar Concord iniciado (v0.7.0) ====
+23:14:22.397 [APP] OnStartup
+23:14:55.297 [RELAY] Conectando à sala do relay: f5e68f12dde44d239dc19d200117658c
+23:14:55.985 [RELAY] Conectado ao relay (sala f5e68f12dde44d239dc19d200117658c)
+23:14:55.987 [RELAY-RX] ctrl=peers
+23:14:55.991 [RELAY-TX] Hello/None to=(sala) room=
+23:14:56.343 [ROOM] Abrindo sala 'Corre Negada' (90ee1d844b164ea286d8202ec2036735), audio=True
+23:14:56.400 [RELAY-TX] Text/RoomJoin to=(sala) room=90ee1d844b164ea286d8202ec2036735
+23:15:12.670 [RELAY-TX] Text/RoomLeave to=(sala) room=90ee1d844b164ea286d8202ec2036735
+23:15:19.231 [ROOM] Abrindo sala 'Corre Negada' (90ee1d844b164ea286d8202ec2036735), audio=True
+23:15:19.260 [RELAY-TX] Text/RoomJoin to=(sala) room=90ee1d844b164ea286d8202ec2036735
+23:15:34.477 [MSG-TX] enviando (2 chars) selfNotes=False peer=(nenhum) room=90ee1d844b164ea286d8202ec2036735
+23:15:34.478 [RELAY-TX] Text/None to=(sala) room=

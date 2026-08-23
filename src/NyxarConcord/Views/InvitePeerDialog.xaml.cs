@@ -66,27 +66,44 @@ public partial class InvitePeerDialog : Window
     }
 
     // Filtra os contatos já conectados (instantâneo, sem rede).
+    // Tolerante: ignora o "@" e casa por handle, nome ou pedaço deles.
     private List<SearchResultItem> FilterLocal(string q)
     {
         IEnumerable<PeerViewModel> src = _localPeers;
-        if (!string.IsNullOrEmpty(q))
+        string lq = q.Trim().TrimStart('@').ToLowerInvariant();
+        if (!string.IsNullOrEmpty(lq))
         {
-            string lq = q.ToLowerInvariant();
             src = _localPeers.Where(p =>
-                (p.Handle ?? "").ToLowerInvariant().Contains(lq) ||
+                (p.Handle ?? "").TrimStart('@').ToLowerInvariant().Contains(lq) ||
                 (p.DisplayName ?? "").ToLowerInvariant().Contains(lq));
         }
         return src.Select(SearchResultItem.FromPeer).ToList();
+    }
+
+    // Deixa sempre um item selecionado quando há resultados, para o botão
+    // "Convidar" funcionar sem exigir um clique extra na lista.
+    private void AutoSelectFirst()
+    {
+        if (PeerList.SelectedItem is null && PeerList.Items.Count > 0)
+            PeerList.SelectedIndex = 0;
+    }
+
+    private void ShowNotice(string text)
+    {
+        Notice.Text = text;
+        Notice.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // Busca ao vivo: mostra locais na hora e, com pequeno atraso, junta o diretório global.
     private async void Search_Changed(object sender, TextChangedEventArgs e)
     {
         string q = SearchBox.Text.Trim();
+        ShowNotice("");
 
         // 1) Resultado local imediato.
         var list = FilterLocal(q);
         PeerList.ItemsSource = list;
+        AutoSelectFirst();
 
         // 2) Busca global com "debounce" (evita uma chamada por tecla).
         _cts?.Cancel();
@@ -98,7 +115,9 @@ public partial class InvitePeerDialog : Window
         catch (TaskCanceledException) { return; }
         if (token.IsCancellationRequested) return;
 
-        var hits = await _api.SearchAsync(q, token);
+        IReadOnlyList<UserHit> hits;
+        try { hits = await _api.SearchAsync(q, token); }
+        catch { return; } // sem internet / diretório indisponível: fica só nos locais
         if (token.IsCancellationRequested) return;
 
         var seen = new HashSet<string>(
@@ -110,19 +129,29 @@ public partial class InvitePeerDialog : Window
                 merged.Add(SearchResultItem.FromHit(h));
         }
         PeerList.ItemsSource = merged;
+        AutoSelectFirst();
+    }
+
+    private void PeerList_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (PeerList.SelectedItem is SearchResultItem) Invite_Click(sender, e);
     }
 
     private void Invite_Click(object sender, RoutedEventArgs e)
     {
+        // Se nada foi clicado mas há resultados, usa o primeiro.
+        AutoSelectFirst();
+
         if (PeerList.SelectedItem is not SearchResultItem item)
         {
-            MessageBox.Show("Selecione um usuário.");
+            ShowNotice(PeerList.Items.Count == 0
+                ? "Ninguém encontrado. Verifique o nome/@handle — a pessoa precisa estar online."
+                : "Escolha um usuário na lista.");
             return;
         }
         if (item.Peer is null)
         {
-            MessageBox.Show("Esse usuário existe, mas não está online agora.\n" +
-                            "Você poderá convidá-lo quando ele estiver conectado.");
+            ShowNotice($"{item.DisplayName} existe, mas não está online agora. Convide quando estiver conectado.");
             return;
         }
         Selected = item.Peer;

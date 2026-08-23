@@ -226,6 +226,81 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!server.CanModerate(SelfId)) return; // só o admin muda a foto
         server.AvatarPath = path;
         SaveServers();
+        // Propaga a nova foto para todos os participantes do servidor.
+        BroadcastServerPhoto(server, null);
+    }
+
+    // ---------- Foto do servidor: enviar/receber pela rede ----------
+
+    // Reduz e converte a imagem para PNG pequeno (base64) para caber no relay.
+    private static string? EncodeServerAvatar(string path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+            var src = new BitmapImage();
+            src.BeginInit();
+            src.CacheOption = BitmapCacheOption.OnLoad;
+            src.UriSource = new Uri(path);
+            src.DecodePixelWidth = 256; // miniatura suficiente para o ícone
+            src.EndInit();
+            src.Freeze();
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(src));
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return Convert.ToBase64String(ms.ToArray());
+        }
+        catch { return null; }
+    }
+
+    // Salva o PNG recebido num arquivo local e devolve o caminho.
+    private static string? SaveServerAvatar(string serverId, string base64)
+    {
+        try
+        {
+            byte[] data = Convert.FromBase64String(base64);
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "NyxarConcord", "avatars");
+            Directory.CreateDirectory(dir);
+            // Nome único por versão, para o WPF não reusar a imagem do cache.
+            string file = Path.Combine(dir, $"srv-{serverId}-{data.Length}.png");
+            File.WriteAllBytes(file, data);
+            return file;
+        }
+        catch { return null; }
+    }
+
+    // Envia a foto do servidor: para um par específico (toPeerId) ou para a sala toda.
+    private void BroadcastServerPhoto(Server server, string? toPeerId)
+    {
+        string? b64 = EncodeServerAvatar(server.AvatarPath);
+        if (string.IsNullOrEmpty(b64)) return;
+        var msg = new ChatMessage
+        {
+            Signal = SignalType.ServerUpdate,
+            ServerId = server.Id,
+            ServerName = server.Name,
+            Text = b64
+        };
+        if (toPeerId is not null)
+        {
+            if (_relay.IsConnected) _ = _relay.SendToPeerAsync(toPeerId, msg);
+        }
+        else NotifyServer(msg);
+    }
+
+    private void HandleServerUpdate(Peer peer, ChatMessage msg)
+    {
+        var server = Servers.FirstOrDefault(s => s.Id == msg.ServerId);
+        if (server is null) return;
+        if (string.IsNullOrEmpty(msg.Text)) return;
+        string? file = SaveServerAvatar(server.Id, msg.Text);
+        if (file is null) return;
+        server.AvatarPath = file;
+        SaveServers();
     }
 
     /// <summary>Encerra a sessão: no próximo início pedirá login.</summary>
@@ -408,6 +483,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
             _sfx.JoinCall();
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
+            StartPresenceHeartbeat(room);
         }
         else
         {
@@ -426,9 +502,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             });
     }
 
+    // Reanuncia minha presença na sala a cada poucos segundos. Ao receber isso,
+    // quem está na mesma sala me readiciona e responde (ack), então nós dois
+    // voltamos à lista mesmo depois de uma reconexão do relay.
+    private void StartPresenceHeartbeat(Room room)
+    {
+        StopPresenceHeartbeat();
+        _presenceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _presenceTimer.Tick += (_, _) =>
+        {
+            if (_currentRoom?.Id != room.Id || !_currentRoom.IsAudio) { StopPresenceHeartbeat(); return; }
+            NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
+        };
+        _presenceTimer.Start();
+    }
+
+    private void StopPresenceHeartbeat()
+    {
+        _presenceTimer?.Stop();
+        _presenceTimer = null;
+    }
+
     private void LeaveCurrentChannel()
     {
         if (_currentRoom is null) return;
+        StopPresenceHeartbeat();
         if (IsSharingScreen) StopScreenShare();
         if (_currentRoom.IsAudio)
         {
@@ -705,7 +803,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 Signal = SignalType.ServerInvite,
                 ServerId = _currentServer.Id,
                 ServerName = _currentServer.Name,
-                Payload = channelsJson
+                Payload = channelsJson,
+                Text = EncodeServerAvatar(_currentServer.AvatarPath) ?? "" // a foto já vai no convite
             });
             Messages.Add(SystemMessage($"✉ Convite do servidor enviado para {peer.DisplayName}."));
         }
@@ -825,6 +924,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private readonly ScreenCaptureService _capture = new();
     private DispatcherTimer? _shareTimer;
+    // Batimento de presença: reanuncia periodicamente que estou na sala, para
+    // curar a lista de membros caso o relay tenha soltado/reconectado alguém.
+    private DispatcherTimer? _presenceTimer;
     private ScreenSource? _shareSource;
     private int _shareMaxHeight = 720;
     private bool _inStage;
@@ -1173,6 +1275,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 if (_currentRoom?.IsAudio == true && _useWebRtcVoice)
                     _ = _webVoice.PeerJoinedAsync(id);
             }
+
+            // Se estou numa sala de voz e alguém (re)apareceu, reanuncio minha
+            // presença direto para ele — assim, após uma reconexão do relay, o par
+            // volta a saber que estou na sala (e me readiciona/responde).
+            if (_currentRoom?.IsAudio == true && id != SelfId && _relay.IsConnected)
+            {
+                var join = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId };
+                _ = _relay.SendToPeerAsync(id, join);
+            }
+
+            // O dono é a fonte da verdade da foto: quando alguém aparece no servidor,
+            // manda a foto atual direto para ele (cobre entrada por código e reconexão).
+            if (_currentServer is not null && _currentServer.OwnerId == SelfId
+                && id != SelfId && !string.IsNullOrEmpty(_currentServer.AvatarPath))
+            {
+                BroadcastServerPhoto(_currentServer, id);
+            }
         });
     }
 
@@ -1255,11 +1374,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 case SignalType.ServerInvite: HandleServerInvite(peer, msg); break;
                 case SignalType.ServerJoin: HandleServerJoin(peer, msg); break;
+                case SignalType.ServerUpdate: HandleServerUpdate(peer, msg); break;
                 case SignalType.RoomJoin: HandleChannelPresence(peer, msg, true); break;
                 case SignalType.RoomLeave: HandleChannelPresence(peer, msg, false); break;
                 case SignalType.ChannelUpdate: HandleChannelUpdate(msg); break;
                 case SignalType.MemberBanned: HandleMemberBanned(msg); break;
                 case SignalType.ScreenShareStart:
+                    EnsurePeerInCurrentRoom(peer, msg.RoomId);
                     SetMemberSharing(peer.Id, true);
                     GetOrCreateTile(peer.Id, peer.DisplayName, false);
                     RaiseStageState();
@@ -1278,6 +1399,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         try
                         {
                             byte[] jpeg = Convert.FromBase64String(msg.Text);
+                            EnsurePeerInCurrentRoom(peer, msg.RoomId);
                             SetMemberSharing(peer.Id, true);
                             var tile = GetOrCreateTile(peer.Id, peer.DisplayName, false);
                             if (tile is not null) tile.Frame = DecodeJpeg(jpeg);
@@ -1308,6 +1430,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             catch { }
             EnsureSelfServerMember(server);
             server.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            // Foto do servidor veio junto no convite? Salva e aplica.
+            if (!string.IsNullOrEmpty(msg.Text))
+            {
+                string? file = SaveServerAvatar(server.Id, msg.Text);
+                if (file is not null) server.AvatarPath = file;
+            }
             Servers.Add(server);
             SaveServers();
         }
@@ -1321,6 +1449,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (server is null) return;
         if (server.Members.All(m => m.PeerId != peer.Id))
             server.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+    }
+
+    // Se um par está claramente ativo na minha sala (mandando tela/voz) mas sumiu
+    // da lista por causa de uma reconexão do relay, readiciona-o. A presença passa
+    // a seguir a atividade real, não só os eventos de entrada/saída.
+    private void EnsurePeerInCurrentRoom(Peer peer, string? roomId)
+    {
+        if (peer.Id == SelfId) return;
+        if (_currentRoom is null || _currentRoom.Id != roomId) return;
+        if (_currentServer is not null && _currentServer.Members.All(m => m.PeerId != peer.Id))
+        {
+            _currentServer.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            OnPropertyChanged(nameof(ServerMembers));
+        }
+        if (_currentRoom.Members.All(m => m.PeerId != peer.Id))
+        {
+            _currentRoom.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            UpdateVoiceTargets();
+        }
     }
 
     private void HandleChannelPresence(Peer peer, ChatMessage msg, bool joined)
@@ -1408,6 +1555,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        StopPresenceHeartbeat();
         _webVoice.Dispose();
         _voice.Dispose();
         _relay.Dispose();

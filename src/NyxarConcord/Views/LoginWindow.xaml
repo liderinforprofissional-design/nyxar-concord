@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NyxarConcord.Views"
         Title="Entrar" Height="520" Width="400"
-        Background="{StaticResource Bg.Darkest}"
+        Background="Transparent"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
         WindowStyle="None" AllowsTransparency="True">
     <Border CornerRadius="16" Background="{StaticResource Bg.Dark}" BorderBrush="{StaticResource Border.Soft}"

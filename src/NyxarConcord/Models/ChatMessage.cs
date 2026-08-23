@@ -19,6 +19,8 @@ public enum SignalType
     ServerInvite,
     /// <summary>Aceite de convite / entrada no servidor.</summary>
     ServerJoin,
+    /// <summary>Atualização do servidor (nome/foto). Foto em PNG/base64 no campo Text.</summary>
+    ServerUpdate,
     /// <summary>Entrou num canal de áudio.</summary>
     RoomJoin,
     /// <summary>Saiu de um canal de áudio / fim de call.</summary>
