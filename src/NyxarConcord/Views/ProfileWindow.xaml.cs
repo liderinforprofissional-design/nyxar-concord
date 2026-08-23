@@ -66,10 +66,8 @@ public partial class ProfileWindow : Window
         string text = MsgInput.Text.Trim();
         if (string.IsNullOrEmpty(text)) return;
 
-        // Abre a DM com esse usuário e envia.
-        _vm.SelectedPeer = _peer;
-        _vm.Draft = text;
-        if (_vm.SendCommand.CanExecute(null)) _vm.SendCommand.Execute(null);
+        MsgInput.Clear();
+        _ = _vm.SendDirectMessageAsync(_peer, text);
         Close();
     }
 

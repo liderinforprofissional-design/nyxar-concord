@@ -83,8 +83,16 @@
                 <!-- Cabeçalho -->
                 <Border DockPanel.Dock="Top" Height="60" Padding="18,0" Background="{StaticResource Header.Bg}"
                         BorderBrush="{StaticResource Accent.Line}" BorderThickness="0,0,0,2">
-                    <TextBlock Text="{Binding ServerName}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"
-                               Foreground="{StaticResource Text.Primary}" TextTrimming="CharacterEllipsis" />
+                    <Grid>
+                        <TextBlock Text="{Binding ServerName}" FontWeight="Bold" FontSize="15" VerticalAlignment="Center"
+                                   Foreground="{StaticResource Text.Primary}" TextTrimming="CharacterEllipsis"
+                                   HorizontalAlignment="Left" Margin="0,0,54,0" />
+                        <Border HorizontalAlignment="Right" VerticalAlignment="Center" Background="{StaticResource Bg.Card}"
+                                CornerRadius="6" Padding="7,2" ToolTip="{Binding AppTitle}">
+                            <TextBlock Text="{Binding AppVersionLabel}" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Text.Muted}" />
+                        </Border>
+                    </Grid>
                 </Border>
 
                 <!-- Rodapé: perfil -->
@@ -161,6 +169,11 @@
                                                     <DataTemplate>
                                                         <Grid Margin="0,3" Cursor="Hand" Background="Transparent"
                                                               MouseLeftButtonUp="Member_Click">
+                                                            <Grid.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                                                </ContextMenu>
+                                                            </Grid.ContextMenu>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
@@ -183,10 +196,20 @@
                                                                        Foreground="{StaticResource Text.Muted}" FontSize="12"
                                                                        VerticalAlignment="Center" Margin="8,0,0,0"
                                                                        TextTrimming="CharacterEllipsis" />
-                                                            <Path Grid.Column="2" Data="{StaticResource Icon.Monitor}" Width="14" Height="14"
-                                                                  Stretch="Uniform" VerticalAlignment="Center" Fill="{StaticResource Badge}"
-                                                                  ToolTip="Transmitindo"
-                                                                  Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}" />
+                                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                                <Path Data="{StaticResource Icon.MicOff}" Width="13" Height="13" Margin="3,0"
+                                                                      Stretch="Uniform" Fill="{StaticResource Text.Muted}"
+                                                                      ToolTip="Microfone silenciado"
+                                                                      Visibility="{Binding IsMuted, Converter={StaticResource BoolToVis}}" />
+                                                                <Path Data="{StaticResource Icon.VolumeOff}" Width="13" Height="13" Margin="3,0"
+                                                                      Stretch="Uniform" Fill="{StaticResource Badge}"
+                                                                      ToolTip="Você silenciou esta pessoa"
+                                                                      Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                                                <Path Data="{StaticResource Icon.Monitor}" Width="14" Height="14" Margin="3,0"
+                                                                      Stretch="Uniform" Fill="{StaticResource Badge}"
+                                                                      ToolTip="Transmitindo"
+                                                                      Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}" />
+                                                            </StackPanel>
                                                         </Grid>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
@@ -352,6 +375,17 @@
                                           Visibility="{Binding IsMicMuted, Converter={StaticResource InverseBoolToVis}}" />
                                     <Path Width="18" Height="18" Stretch="Uniform" Fill="White" Data="{StaticResource Icon.MicOff}"
                                           Visibility="{Binding IsMicMuted, Converter={StaticResource BoolToVis}}" />
+                                </Grid>
+                            </Button>
+                            <Button Style="{StaticResource CallButton}" ToolTip="{Binding GalleryToggleTip}" Click="ToggleGallery_Click"
+                                    Visibility="{Binding CanUseGallery, Converter={StaticResource BoolToVis}}">
+                                <Grid>
+                                    <Path Data="{StaticResource Icon.Grid}" Fill="{StaticResource Text.Primary}"
+                                          Width="20" Height="20" Stretch="Uniform"
+                                          Visibility="{Binding GalleryView, Converter={StaticResource InverseBoolToVis}}" />
+                                    <Path Data="{StaticResource Icon.Message}" Fill="{StaticResource Text.Primary}"
+                                          Width="20" Height="20" Stretch="Uniform"
+                                          Visibility="{Binding GalleryView, Converter={StaticResource BoolToVis}}" />
                                 </Grid>
                             </Button>
                             <Button Style="{StaticResource CallButton}" ToolTip="Convidar para o servidor" Click="Invite_Click">
@@ -614,6 +648,78 @@
                         </Border>
                     </Grid>
 
+                    <!-- GALERIA de participantes (cards) -->
+                    <Grid Grid.Row="1" Background="#080B14"
+                          Visibility="{Binding ShowGallery, Converter={StaticResource BoolToVis}}">
+
+                        <!-- Grade de cards -->
+                        <ItemsControl ItemsSource="{Binding Gallery}" Margin="6"
+                                      Visibility="{Binding IsGalleryMaximized, Converter={StaticResource InverseBoolToVis}}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="2" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="6" CornerRadius="10" Background="{Binding Background}" Cursor="Hand"
+                                            ClipToBounds="True" MouseLeftButtonUp="GalleryTile_Click" Tag="{Binding}">
+                                        <Grid>
+                                            <!-- Tela transmitida preenche o card -->
+                                            <Image Source="{Binding Frame}" Stretch="UniformToFill"
+                                                   RenderOptions.BitmapScalingMode="LowQuality"
+                                                   Visibility="{Binding ShowAvatar, Converter={StaticResource InverseBoolToVis}}" />
+                                            <!-- Avatar centralizado -->
+                                            <Grid Width="92" Height="92" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Visibility="{Binding ShowAvatar, Converter={StaticResource BoolToVis}}">
+                                                <Border CornerRadius="46" Background="{StaticResource Brand.Gradient}">
+                                                    <TextBlock Text="{Binding Initials}" Foreground="White" FontWeight="Bold"
+                                                               FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                                <Ellipse Width="92" Height="92">
+                                                    <Ellipse.Fill>
+                                                        <ImageBrush ImageSource="{Binding AvatarPath, Converter={StaticResource PathToImage}}"
+                                                                    Stretch="UniformToFill" />
+                                                    </Ellipse.Fill>
+                                                </Ellipse>
+                                            </Grid>
+                                            <!-- Nome + ícones de mudo -->
+                                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="10"
+                                                    Background="#80000000" CornerRadius="6" Padding="8,3">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource Icon.MicOff}" Width="12" Height="12" Margin="0,0,5,0"
+                                                          Stretch="Uniform" Fill="{StaticResource Text.Muted}" VerticalAlignment="Center"
+                                                          Visibility="{Binding IsMuted, Converter={StaticResource BoolToVis}}" />
+                                                    <Path Data="{StaticResource Icon.VolumeOff}" Width="12" Height="12" Margin="0,0,5,0"
+                                                          Stretch="Uniform" Fill="{StaticResource Badge}" VerticalAlignment="Center"
+                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="12" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                            <!-- Selo AO VIVO -->
+                                            <Border VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
+                                                    Background="{StaticResource Badge}" CornerRadius="5" Padding="6,2"
+                                                    Visibility="{Binding IsSharing, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="AO VIVO" Foreground="White" FontSize="9" FontWeight="Bold" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- Card maximizado (clique para voltar) -->
+                        <Grid Background="Black" Cursor="Hand" MouseLeftButtonUp="GalleryRestore_Click"
+                              Visibility="{Binding IsGalleryMaximized, Converter={StaticResource BoolToVis}}">
+                            <Image Source="{Binding MaximizedGalleryTile.Frame}" Stretch="Uniform" Margin="8"
+                                   RenderOptions.BitmapScalingMode="LowQuality" />
+                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="14"
+                                    Background="#B0000000" CornerRadius="6" Padding="10,5">
+                                <TextBlock Text="{Binding MaximizedGalleryTile.Name}" Foreground="White" />
+                            </Border>
+                        </Grid>
+                    </Grid>
+
                     <!-- Tela de boas-vindas com a logo -->
                     <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding ShowWelcome, Converter={StaticResource BoolToVis}}">
@@ -646,6 +752,8 @@
                                     </Grid.ColumnDefinitions>
                                     <Grid.ContextMenu>
                                         <ContextMenu>
+                                            <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                            <Separator />
                                             <MenuItem Header="Expulsar do canal" Click="Kick_Click" />
                                             <MenuItem Header="Banir do canal" Click="Ban_Click" />
                                         </ContextMenu>
@@ -669,13 +777,23 @@
                                                    FontSize="13" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding Role}" Foreground="{StaticResource Text.Muted}" FontSize="10" />
                                     </StackPanel>
-                                    <Button Grid.Column="2" VerticalAlignment="Center" Cursor="Hand" Background="Transparent"
-                                            BorderThickness="0" Click="Watch_Click"
-                                            Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}">
-                                        <Border Background="{StaticResource Badge}" CornerRadius="5" Padding="6,2">
-                                            <TextBlock Text="AO VIVO" Foreground="White" FontSize="9" FontWeight="Bold" />
-                                        </Border>
-                                    </Button>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Path Data="{StaticResource Icon.MicOff}" Width="14" Height="14" Margin="3,0"
+                                              Stretch="Uniform" Fill="{StaticResource Text.Muted}"
+                                              ToolTip="Microfone silenciado"
+                                              Visibility="{Binding IsMuted, Converter={StaticResource BoolToVis}}" />
+                                        <Path Data="{StaticResource Icon.VolumeOff}" Width="14" Height="14" Margin="3,0"
+                                              Stretch="Uniform" Fill="{StaticResource Badge}"
+                                              ToolTip="Você silenciou esta pessoa"
+                                              Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                        <Button VerticalAlignment="Center" Cursor="Hand" Background="Transparent"
+                                                BorderThickness="0" Click="Watch_Click" Margin="3,0,0,0"
+                                                Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}">
+                                            <Border Background="{StaticResource Badge}" CornerRadius="5" Padding="6,2">
+                                                <TextBlock Text="AO VIVO" Foreground="White" FontSize="9" FontWeight="Bold" />
+                                            </Border>
+                                        </Button>
+                                    </StackPanel>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>

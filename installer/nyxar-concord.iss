@@ -32,6 +32,9 @@ SetupIconFile=..\src\NyxarConcord\Assets\nyxar.ico
 WizardStyle=modern
 ; Instalação por usuário — não pede permissão de administrador (UAC).
 PrivilegesRequired=lowest
+; Atualização no lugar: fecha o app aberto, atualiza e reabre (usado no auto-update).
+CloseApplications=yes
+RestartApplications=yes
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"

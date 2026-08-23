@@ -20,6 +20,8 @@ public sealed class VoiceService : IDisposable
     private readonly WaveFormat _format = new(16000, 16, 1);
     private readonly object _lock = new();
     private readonly Dictionary<string, BufferedWaveProvider> _inputs = new();
+    // Pessoas que eu silenciei só para mim (não reproduz o áudio delas).
+    private readonly HashSet<string> _mutedPeers = new();
 
     private WaveInEvent? _mic;
     private WaveOutEvent? _out;
@@ -183,12 +185,33 @@ public sealed class VoiceService : IDisposable
         }
     }
 
+    /// <summary>Silencia (ou reativa) uma pessoa só para mim, localmente.</summary>
+    public void SetPeerMuted(string peerId, bool muted)
+    {
+        lock (_lock)
+        {
+            if (muted)
+            {
+                _mutedPeers.Add(peerId);
+                // Descarta o que já estava no buffer dessa pessoa.
+                if (_inputs.TryGetValue(peerId, out var buf)) buf.ClearBuffer();
+            }
+            else _mutedPeers.Remove(peerId);
+        }
+    }
+
+    public bool IsPeerMuted(string peerId)
+    {
+        lock (_lock) return _mutedPeers.Contains(peerId);
+    }
+
     /// <summary>Reproduz um quadro recebido de um participante (mixado).</summary>
     public void PlayFrom(string peerId, byte[] pcm)
     {
         lock (_lock)
         {
             if (_mixer is null) return;
+            if (_mutedPeers.Contains(peerId)) return; // silenciado só para mim
             if (!_inputs.TryGetValue(peerId, out var buf))
             {
                 buf = new BufferedWaveProvider(_format)

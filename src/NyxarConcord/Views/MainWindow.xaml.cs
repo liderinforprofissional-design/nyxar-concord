@@ -66,6 +66,7 @@ public partial class MainWindow : Window
 
         _vm = new MainViewModel(identity, _identityService, new AudioDeviceService(), new ScreenSourceService());
         DataContext = _vm;
+        Title = _vm.AppTitle; // "Nyxar Concord vX.Y.Z" na barra de título/taskbar
 
         _vm.Messages.CollectionChanged += OnMessagesChanged;
         Closed += (_, _) => _vm.Dispose();
@@ -78,16 +79,46 @@ public partial class MainWindow : Window
     {
         try
         {
-            var info = await new UpdateService().CheckAsync();
+            var svc = new UpdateService();
+            var info = await svc.CheckAsync();
             if (info is null) return;
 
-            var r = MessageBox.Show(
+            // Se o release tem o instalador (.exe), atualizamos NO LUGAR (sem reinstalar do zero).
+            if (!string.IsNullOrEmpty(info.AssetUrl))
+            {
+                var r = MessageBox.Show(
+                    $"Uma nova versão está disponível: v{info.Version}\n" +
+                    $"Você está na v{UpdateService.CurrentVersion}.\n\n" +
+                    "Deseja atualizar agora? O app fecha, atualiza e reabre sozinho.",
+                    "Atualização disponível", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                if (r != MessageBoxResult.Yes) return;
+
+                string? setup = await svc.DownloadInstallerAsync(info.AssetUrl);
+                if (setup is null)
+                {
+                    MessageBox.Show("Não foi possível baixar a atualização. Tente novamente mais tarde.",
+                        "Atualização", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Roda o instalador em silêncio: ele fecha o app, atualiza e reabre.
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(setup)
+                {
+                    UseShellExecute = true,
+                    Arguments = "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /NORESTART"
+                });
+                Application.Current.Shutdown();
+                return;
+            }
+
+            // Sem instalador no release: cai no fluxo antigo (abre a página).
+            var r2 = MessageBox.Show(
                 $"Uma nova versão do Nyxar Concord está disponível: v{info.Version}\n" +
                 $"Você está na v{UpdateService.CurrentVersion}.\n\n" +
                 "Deseja abrir a página de download?",
                 "Atualização disponível", MessageBoxButton.YesNo, MessageBoxImage.Information);
 
-            if (r == MessageBoxResult.Yes && !string.IsNullOrEmpty(info.Url))
+            if (r2 == MessageBoxResult.Yes && !string.IsNullOrEmpty(info.Url))
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(info.Url) { UseShellExecute = true });
         }
         catch { }
@@ -204,6 +235,16 @@ public partial class MainWindow : Window
 
     private void StopShare_Click(object sender, RoutedEventArgs e) => _vm.StopScreenShare();
 
+    // --- Galeria de participantes ---
+    private void ToggleGallery_Click(object sender, RoutedEventArgs e) => _vm.ToggleGalleryView();
+
+    private void GalleryTile_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: NyxarConcord.ViewModels.GalleryTile tile }) _vm.ToggleGalleryMaximize(tile);
+    }
+
+    private void GalleryRestore_Click(object sender, MouseButtonEventArgs e) => _vm.RestoreGallery();
+
     private void Hangup_Click(object sender, RoutedEventArgs e) => _vm.LeaveCall();
     private void MuteMic_Click(object sender, RoutedEventArgs e) => _vm.ToggleMic();
 
@@ -250,6 +291,12 @@ public partial class MainWindow : Window
             MessageBox.Show($"Banir {member.DisplayName} deste canal?", "Banir",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             _vm.BanMember(member);
+    }
+
+    // Silenciar/reativar uma pessoa só para mim (local).
+    private void ToggleMute_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: RoomMember member }) _vm.TogglePeerMute(member);
     }
 
     // --- Foto do servidor ---

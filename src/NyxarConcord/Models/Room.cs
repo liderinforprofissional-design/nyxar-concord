@@ -72,10 +72,24 @@ public sealed class RoomMember : INotifyPropertyChanged
     public string PeerId { get; init; } = "";
     public string DisplayName { get; set; } = "";
     public bool IsSelf { get; init; }
-    public string AvatarPath { get; set; } = "";
 
+    private string _avatarPath = "";
+    public string AvatarPath { get => _avatarPath; set => Set(ref _avatarPath, value); }
+
+    /// <summary>O próprio usuário silenciou o microfone (propagado a todos).</summary>
     private bool _isMuted;
     public bool IsMuted { get => _isMuted; set => Set(ref _isMuted, value); }
+
+    /// <summary>Eu silenciei esta pessoa só para mim (local).</summary>
+    private bool _isMutedByMe;
+    public bool IsMutedByMe
+    {
+        get => _isMutedByMe;
+        set { if (Set(ref _isMutedByMe, value)) { Raise(nameof(MuteMenuLabel)); } }
+    }
+
+    /// <summary>Texto do menu de contexto para silenciar/reativar esta pessoa.</summary>
+    public string MuteMenuLabel => _isMutedByMe ? "Reativar som desta pessoa" : "Silenciar só para mim";
 
     private bool _isSharingScreen;
     public bool IsSharingScreen
@@ -102,11 +116,12 @@ public sealed class RoomMember : INotifyPropertyChanged
     public string Role => IsSelf ? "você" : "";
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        return true;
     }
     private void Raise(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
 }

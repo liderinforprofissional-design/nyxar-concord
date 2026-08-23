@@ -46,6 +46,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string SelfStatus => string.IsNullOrWhiteSpace(Identity.Status) ? "Online" : Identity.Status;
     public string Status => $"Porta {_session.LocalPort} • ID {Identity.ShortId}";
     public string SelfInitials => Initials(Identity.DisplayName);
+    /// <summary>Nome + versão do app, para o cabeçalho.</summary>
+    public string AppTitle => $"Nyxar Concord  v{UpdateService.CurrentVersion}";
+    public string AppVersionLabel => $"v{UpdateService.CurrentVersion}";
 
     public MainViewModel(
         UserIdentity identity,
@@ -472,9 +475,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanShareScreen));
         RaiseStageState();
 
+        OnPropertyChanged(nameof(CanUseGallery));
+
         if (room.IsAudio)
         {
             AddSelfToChannel(room);
+            room.Members.CollectionChanged += OnRoomMembersChanged;
             int dev = int.TryParse(Identity.Audio.InputDeviceId, out var n) ? n : -1;
             _voice.Muted = _isMicMuted;
             _voice.Start(dev);
@@ -483,6 +489,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
             _sfx.JoinCall();
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
+            AnnounceMicState(); // avisa se entrei já mutado
             StartPresenceHeartbeat(room);
         }
         else
@@ -498,7 +505,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (room.Members.All(m => m.PeerId != SelfId))
             room.Members.Add(new RoomMember
             {
-                PeerId = SelfId, DisplayName = Identity.DisplayName, IsSelf = true, AvatarPath = Identity.AvatarPath
+                PeerId = SelfId, DisplayName = Identity.DisplayName, IsSelf = true,
+                AvatarPath = Identity.AvatarPath, IsMuted = _isMicMuted
             });
     }
 
@@ -523,6 +531,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _presenceTimer = null;
     }
 
+    private void OnRoomMembersChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (_galleryView) RebuildGallery();
+    }
+
     private void LeaveCurrentChannel()
     {
         if (_currentRoom is null) return;
@@ -530,12 +543,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (IsSharingScreen) StopScreenShare();
         if (_currentRoom.IsAudio)
         {
+            _currentRoom.Members.CollectionChanged -= OnRoomMembersChanged;
             _webVoice.Stop();
             _voice.Stop();
             var self = _currentRoom.Members.FirstOrDefault(m => m.IsSelf);
             if (self is not null) _currentRoom.Members.Remove(self);
             NotifyServer(new ChatMessage { Signal = SignalType.RoomLeave, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId });
         }
+        // Sai da galeria ao deixar a call.
+        GalleryView = false;
+        MaximizedGalleryTile = null;
+        Gallery.Clear();
+        OnPropertyChanged(nameof(CanUseGallery));
         _voiceTargets = Array.Empty<Peer>();
         _voiceRoomId = null;
     }
@@ -593,6 +612,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     foreach (var p in ServerPeers())
                         await _session.SendTextAsync(p, text);
             }
+        }
+        catch { Messages.Add(SystemMessage("⚠ Não foi possível entregar a mensagem.")); }
+    }
+
+    /// <summary>Envia uma mensagem direta a um contato sem mudar a conversa atual.
+    /// Usado pelo card de perfil (botão enviar).</summary>
+    public async Task SendDirectMessageAsync(PeerViewModel peer, string text)
+    {
+        text = (text ?? "").Trim();
+        if (string.IsNullOrEmpty(text)) return;
+
+        var mine = new ChatMessage
+        {
+            Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, Text = text, IsMine = true
+        };
+        // Se essa DM já está aberta, mostra a mensagem na hora.
+        if (_selectedPeer?.Peer.Id == peer.Peer.Id) Messages.Add(mine);
+        _sfx.MessageSent();
+
+        try
+        {
+            if (peer.Peer.IsRelay)
+                await _relay.SendToPeerAsync(peer.Peer.Id, new ChatMessage { Kind = MessageKind.Text, Text = text });
+            else
+                await _session.SendTextAsync(peer.Peer, text);
         }
         catch { Messages.Add(SystemMessage("⚠ Não foi possível entregar a mensagem.")); }
     }
@@ -877,6 +921,83 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IsMicMuted = !IsMicMuted;
         _voice.Muted = _isMicMuted;
         if (_isMicMuted) _sfx.MuteOn(); else _sfx.MuteOff();
+        // Mostra o ícone no meu próprio nome e avisa todo mundo.
+        _micState[SelfId] = _isMicMuted;
+        SetMemberMuted(SelfId, _isMicMuted);
+        AnnounceMicState();
+    }
+
+    // Avisa a sala/servidor se meu microfone está mutado (para o ícone dos outros).
+    private void AnnounceMicState()
+    {
+        NotifyServer(new ChatMessage { Signal = SignalType.MicState, Text = _isMicMuted ? "1" : "0" });
+    }
+
+    // ---------- Estado de mudo (próprio e "silenciar para mim") ----------
+
+    // Último estado de microfone conhecido de cada peer (mudo = true).
+    private readonly Dictionary<string, bool> _micState = new();
+    // Peers que eu silenciei só para mim.
+    private readonly HashSet<string> _locallyMuted = new();
+    // Foto de perfil (caminho local salvo) de cada peer.
+    private readonly Dictionary<string, string> _avatars = new();
+
+    // Aplica os estados conhecidos (mudo/foto) a um membro recém-criado.
+    private void ApplyMuteState(RoomMember m)
+    {
+        if (_micState.TryGetValue(m.PeerId, out var muted)) m.IsMuted = muted;
+        m.IsMutedByMe = _locallyMuted.Contains(m.PeerId);
+        if (_avatars.TryGetValue(m.PeerId, out var avatar)) m.AvatarPath = avatar;
+    }
+
+    // Envia meu perfil (nome + foto) para a sala ou para um par específico.
+    private void AnnounceProfile(string? toPeerId)
+    {
+        string? b64 = EncodeServerAvatar(Identity.AvatarPath);
+        if (string.IsNullOrEmpty(b64)) return; // sem foto: nada a propagar
+        var msg = new ChatMessage { Signal = SignalType.UserUpdate, SenderName = Identity.DisplayName, Text = b64 };
+        if (toPeerId is not null) { if (_relay.IsConnected) _ = _relay.SendToPeerAsync(toPeerId, msg); }
+        else NotifyServer(msg);
+    }
+
+    private void HandleUserUpdate(Peer peer, ChatMessage msg)
+    {
+        if (string.IsNullOrEmpty(msg.Text)) return;
+        string? file = SaveServerAvatar("user-" + peer.Id, msg.Text);
+        if (file is null) return;
+        _avatars[peer.Id] = file;
+        foreach (var m in AllMemberInstances(peer.Id)) m.AvatarPath = file;
+        UpdateGalleryTile(peer.Id, t => t.AvatarPath = file);
+    }
+
+    // Marca "mic mutado" (próprio, propagado) em todas as listas onde a pessoa aparece.
+    private void SetMemberMuted(string peerId, bool muted)
+    {
+        foreach (var m in AllMemberInstances(peerId)) m.IsMuted = muted;
+        UpdateGalleryTile(peerId, t => t.IsMuted = muted);
+    }
+
+    // Silencia/reativa uma pessoa só para mim: áudio + ícone + som.
+    public void TogglePeerMute(RoomMember member)
+    {
+        if (member.IsSelf) return;
+        bool mute = !member.IsMutedByMe;
+        if (mute) _locallyMuted.Add(member.PeerId); else _locallyMuted.Remove(member.PeerId);
+        _voice.SetPeerMuted(member.PeerId, mute);
+        foreach (var m in AllMemberInstances(member.PeerId)) m.IsMutedByMe = mute;
+        UpdateGalleryTile(member.PeerId, t => t.IsMutedByMe = mute);
+        if (mute) _sfx.MuteOn(); else _sfx.MuteOff();
+    }
+
+    // Todas as instâncias de RoomMember (servidor + canais) com este PeerId.
+    private IEnumerable<RoomMember> AllMemberInstances(string peerId)
+    {
+        foreach (var s in Servers)
+        {
+            foreach (var m in s.Members) if (m.PeerId == peerId) yield return m;
+            foreach (var ch in s.Channels)
+                foreach (var m in ch.Members) if (m.PeerId == peerId) yield return m;
+        }
     }
 
     public void ApplyAudioSettings()
@@ -962,9 +1083,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public bool IsMaximized => _maximized is not null;
     public bool HasStreams => Streams.Count > 0;
-    public bool ShowStage => _inStage && HasStreams;
-    public bool ShowChat => !ShowStage;
-    public bool ShowWatchBanner => InCall && HasStreams && !_inStage;
+    public bool ShowStage => _inStage && HasStreams && !_galleryView;
+    public bool ShowGallery => _galleryView && InCall;
+    public bool ShowChat => !ShowStage && !ShowGallery;
+    public bool ShowWatchBanner => InCall && HasStreams && !_inStage && !_galleryView;
+    /// <summary>Se o botão de alternar galeria deve aparecer (só em call).</summary>
+    public bool CanUseGallery => InCall;
     public string StreamBarText => Streams.Count == 1 ? Streams[0].SharerName : $"{Streams.Count} transmissões ao vivo";
 
     public void WatchStream()
@@ -986,6 +1110,108 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         => MaximizedStream = (tile is not null && _maximized != tile) ? tile : null;
 
     public void Restore() => MaximizedStream = null;
+
+    // ============================================================
+    //  Visualização em GALERIA (cards dos participantes)
+    // ============================================================
+
+    /// <summary>Cards dos participantes (avatar centralizado; tela preenche quando transmite).</summary>
+    public ObservableCollection<GalleryTile> Gallery { get; } = new();
+
+    private bool _galleryView;
+    public bool GalleryView
+    {
+        get => _galleryView;
+        private set { if (SetProperty(ref _galleryView, value)) RaiseGalleryState(); }
+    }
+
+    private GalleryTile? _maxTile;
+    public GalleryTile? MaximizedGalleryTile
+    {
+        get => _maxTile;
+        private set { if (SetProperty(ref _maxTile, value)) OnPropertyChanged(nameof(IsGalleryMaximized)); }
+    }
+    public bool IsGalleryMaximized => _maxTile is not null;
+
+    public string GalleryToggleTip => _galleryView ? "Ver o chat" : "Ver os participantes (galeria)";
+
+    /// <summary>Alterna entre o chat e a galeria de participantes.</summary>
+    public void ToggleGalleryView()
+    {
+        if (!InCall) return;
+        if (!_galleryView) RebuildGallery();
+        MaximizedGalleryTile = null;
+        GalleryView = !_galleryView;
+    }
+
+    /// <summary>Clique no card: só o de quem está transmitindo maximiza/volta.</summary>
+    public void ToggleGalleryMaximize(GalleryTile? tile)
+    {
+        if (tile is null || !tile.IsSharing) return;
+        MaximizedGalleryTile = _maxTile != tile ? tile : null;
+    }
+
+    public void RestoreGallery() => MaximizedGalleryTile = null;
+
+    private void RaiseGalleryState()
+    {
+        OnPropertyChanged(nameof(ShowGallery));
+        OnPropertyChanged(nameof(ShowChat));
+        OnPropertyChanged(nameof(ShowStage));
+        OnPropertyChanged(nameof(ShowWatchBanner));
+        OnPropertyChanged(nameof(ShowChatWatermark));
+        OnPropertyChanged(nameof(GalleryToggleTip));
+    }
+
+    // Reconstrói os cards a partir dos membros da sala atual (mantém quadros/estados).
+    private void RebuildGallery()
+    {
+        Gallery.Clear();
+        if (_currentRoom is null) return;
+        foreach (var m in _currentRoom.Members)
+        {
+            var tile = new GalleryTile
+            {
+                PeerId = m.PeerId,
+                IsSelf = m.IsSelf,
+                Name = m.IsSelf ? Identity.DisplayName : m.DisplayName,
+                AvatarPath = m.AvatarPath,
+                Background = ColorForPeer(m.PeerId),
+                IsSharing = m.IsSharingScreen,
+                IsMuted = m.IsMuted,
+                IsMutedByMe = m.IsMutedByMe,
+                Frame = Streams.FirstOrDefault(s => s.SharerId == m.PeerId)?.Frame
+            };
+            Gallery.Add(tile);
+        }
+    }
+
+    // Aplica uma mudança ao card do participante (se a galeria estiver montada).
+    private void UpdateGalleryTile(string peerId, Action<GalleryTile> apply)
+    {
+        var t = Gallery.FirstOrDefault(g => g.PeerId == peerId);
+        if (t is not null) apply(t);
+    }
+
+    // Cor de fundo estável e agradável (tom pastel escuro) a partir do id.
+    private static readonly Brush[] _galleryPalette = BuildGalleryPalette();
+    private static Brush ColorForPeer(string peerId)
+    {
+        int h = 0; foreach (char c in peerId) h = h * 31 + c;
+        return _galleryPalette[(uint)h % (uint)_galleryPalette.Length];
+    }
+    private static Brush[] BuildGalleryPalette()
+    {
+        // Tons escuros e discretos (parecidos com o mock: marrom/vinho/ardósia).
+        string[] hex = { "#3A2E33", "#4A3A42", "#5A4A44", "#3A3340", "#334044", "#40363A", "#463C4A", "#3E4436" };
+        var arr = new Brush[hex.Length];
+        for (int i = 0; i < hex.Length; i++)
+        {
+            var c = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex[i]);
+            var b = new SolidColorBrush(c); b.Freeze(); arr[i] = b;
+        }
+        return arr;
+    }
 
     private void RaiseStageState()
     {
@@ -1038,6 +1264,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (sm is not null) sm.IsSharingScreen = sharing;
         var cm = _currentRoom?.Members.FirstOrDefault(x => x.PeerId == peerId);
         if (cm is not null) cm.IsSharingScreen = sharing;
+        UpdateGalleryTile(peerId, t => { t.IsSharing = sharing; if (!sharing) t.Frame = null; });
+        if (!sharing && _maxTile?.PeerId == peerId) MaximizedGalleryTile = null;
     }
 
     // Quadro de tela recebido por WebRTC (VP8 decodificado em BGR) -> tile.
@@ -1053,6 +1281,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SetMemberSharing(peerId, true);
             var tile = GetOrCreateTile(peerId, name, false);
             if (tile is not null) tile.Frame = img;
+            UpdateGalleryTile(peerId, t => t.Frame = img);
         });
     }
 
@@ -1116,7 +1345,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             byte[]? bgr = _capture.CaptureBgr(_shareSource, _shareMaxHeight, out int vw, out int vh);
             if (bgr is null) return;
             var selfTile = Streams.FirstOrDefault(x => x.SharerId == SelfId);
-            if (selfTile is not null) selfTile.Frame = BgrToBitmap(bgr, vw, vh, vw * 3);
+            var selfImg = BgrToBitmap(bgr, vw, vh, vw * 3);
+            if (selfTile is not null) selfTile.Frame = selfImg;
+            UpdateGalleryTile(SelfId, t => t.Frame = selfImg);
             _ = System.Threading.Tasks.Task.Run(() => _webVoice.SendVideoFrame(bgr, vw, vh));
             return;
         }
@@ -1134,7 +1365,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _lastFrameSentAt = DateTime.UtcNow;
 
         var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
-        if (self is not null) self.Frame = DecodeJpeg(jpeg);
+        var selfFrame = DecodeJpeg(jpeg);
+        if (self is not null) self.Frame = selfFrame;
+        UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
         string b64 = Convert.ToBase64String(jpeg);
 
         if (_relay.IsConnected)
@@ -1269,7 +1502,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             if (_currentServer is not null && _currentServer.Members.All(m => m.PeerId != id))
             {
-                _currentServer.Members.Add(new RoomMember { PeerId = id, DisplayName = peer.DisplayName });
+                var nm = new RoomMember { PeerId = id, DisplayName = peer.DisplayName };
+                ApplyMuteState(nm);
+                _currentServer.Members.Add(nm);
                 OnPropertyChanged(nameof(ServerMembers));
                 if (_currentRoom is not null) UpdateVoiceTargets();
                 if (_currentRoom?.IsAudio == true && _useWebRtcVoice)
@@ -1283,6 +1518,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 var join = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId };
                 _ = _relay.SendToPeerAsync(id, join);
+                // e informo meu estado de microfone para ele mostrar o ícone certo
+                _ = _relay.SendToPeerAsync(id, new ChatMessage { Signal = SignalType.MicState, Text = _isMicMuted ? "1" : "0" });
             }
 
             // O dono é a fonte da verdade da foto: quando alguém aparece no servidor,
@@ -1292,6 +1529,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 BroadcastServerPhoto(_currentServer, id);
             }
+
+            // Mando minha foto de perfil para quem apareceu (para o avatar aparecer na lista).
+            if (_currentServer is not null && id != SelfId && _relay.IsConnected)
+                AnnounceProfile(id);
         });
     }
 
@@ -1375,6 +1616,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 case SignalType.ServerInvite: HandleServerInvite(peer, msg); break;
                 case SignalType.ServerJoin: HandleServerJoin(peer, msg); break;
                 case SignalType.ServerUpdate: HandleServerUpdate(peer, msg); break;
+                case SignalType.MicState:
+                    _micState[peer.Id] = msg.Text == "1";
+                    SetMemberMuted(peer.Id, msg.Text == "1");
+                    break;
+                case SignalType.UserUpdate: HandleUserUpdate(peer, msg); break;
                 case SignalType.RoomJoin: HandleChannelPresence(peer, msg, true); break;
                 case SignalType.RoomLeave: HandleChannelPresence(peer, msg, false); break;
                 case SignalType.ChannelUpdate: HandleChannelUpdate(msg); break;
@@ -1401,8 +1647,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                             byte[] jpeg = Convert.FromBase64String(msg.Text);
                             EnsurePeerInCurrentRoom(peer, msg.RoomId);
                             SetMemberSharing(peer.Id, true);
+                            var frame = DecodeJpeg(jpeg);
                             var tile = GetOrCreateTile(peer.Id, peer.DisplayName, false);
-                            if (tile is not null) tile.Frame = DecodeJpeg(jpeg);
+                            if (tile is not null) tile.Frame = frame;
+                            UpdateGalleryTile(peer.Id, t => t.Frame = frame);
                         }
                         catch { }
                     }
@@ -1460,12 +1708,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_currentRoom is null || _currentRoom.Id != roomId) return;
         if (_currentServer is not null && _currentServer.Members.All(m => m.PeerId != peer.Id))
         {
-            _currentServer.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            var nm = new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName };
+            ApplyMuteState(nm);
+            _currentServer.Members.Add(nm);
             OnPropertyChanged(nameof(ServerMembers));
         }
         if (_currentRoom.Members.All(m => m.PeerId != peer.Id))
         {
-            _currentRoom.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            var rm = new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName };
+            ApplyMuteState(rm);
+            _currentRoom.Members.Add(rm);
             UpdateVoiceTargets();
         }
     }
@@ -1478,7 +1730,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (joined)
         {
             if (room.Members.All(m => m.PeerId != peer.Id))
-                room.Members.Add(new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName });
+            {
+                var nm = new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName };
+                ApplyMuteState(nm);
+                room.Members.Add(nm);
+            }
 
             // Se eu já estou nesta sala e o outro acabou de anunciar (broadcast),
             // respondo direto pra ele saber que eu também estou aqui.

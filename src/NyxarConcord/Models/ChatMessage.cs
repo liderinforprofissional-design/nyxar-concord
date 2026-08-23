@@ -19,8 +19,6 @@ public enum SignalType
     ServerInvite,
     /// <summary>Aceite de convite / entrada no servidor.</summary>
     ServerJoin,
-    /// <summary>Atualização do servidor (nome/foto). Foto em PNG/base64 no campo Text.</summary>
-    ServerUpdate,
     /// <summary>Entrou num canal de áudio.</summary>
     RoomJoin,
     /// <summary>Saiu de um canal de áudio / fim de call.</summary>
@@ -50,7 +48,15 @@ public enum SignalType
     /// <summary>Resposta SDP de WebRTC (SDP no campo Text).</summary>
     RtcAnswer,
     /// <summary>Candidato ICE de WebRTC (JSON no campo Text).</summary>
-    RtcIce
+    RtcIce,
+
+    // --- Novos (adicionados ao FINAL para não renumerar os sinais frequentes) ---
+    /// <summary>Atualização do servidor (nome/foto). Foto em PNG/base64 no campo Text.</summary>
+    ServerUpdate,
+    /// <summary>Estado do microfone (mutado/ativo). Text = "1" mutado, "0" ativo.</summary>
+    MicState,
+    /// <summary>Perfil do usuário (nome/foto). Foto em PNG/base64 no campo Text.</summary>
+    UserUpdate
 }
 
 /// <summary>

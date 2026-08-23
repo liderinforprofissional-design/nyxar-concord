@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
@@ -10,6 +11,8 @@ public sealed class UpdateInfo
     public string Version { get; init; } = "";
     public string Url { get; init; } = "";
     public string Notes { get; init; } = "";
+    /// <summary>Link direto do instalador (.exe) do release, quando existe.</summary>
+    public string AssetUrl { get; init; } = "";
 }
 
 /// <summary>
@@ -63,10 +66,53 @@ public sealed class UpdateService
             {
                 Version = tag.TrimStart('v', 'V'),
                 Url = Str(root, "html_url"),
-                Notes = Str(root, "body")
+                Notes = Str(root, "body"),
+                AssetUrl = FindInstallerAsset(root)
             };
         }
         catch { return null; } // sem internet / erro: silencioso
+    }
+
+    // Procura o instalador (.exe) entre os anexos do release.
+    private static string FindInstallerAsset(JsonElement root)
+    {
+        if (!root.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+            return "";
+        foreach (var a in assets.EnumerateArray())
+        {
+            string name = Str(a, "name");
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                return Str(a, "browser_download_url");
+        }
+        return "";
+    }
+
+    /// <summary>Baixa o instalador para a pasta temporária e devolve o caminho (ou null).</summary>
+    public async Task<string?> DownloadInstallerAsync(string assetUrl, IProgress<double>? progress = null)
+    {
+        if (string.IsNullOrEmpty(assetUrl)) return null;
+        try
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"NyxarConcordSetup-{Guid.NewGuid():N}.exe");
+            using var req = new HttpRequestMessage(HttpMethod.Get, assetUrl);
+            req.Headers.UserAgent.ParseAdd("NyxarConcord-Updater");
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            long? total = resp.Content.Headers.ContentLength;
+            await using var input = await resp.Content.ReadAsStreamAsync();
+            await using var output = File.Create(path);
+            var buffer = new byte[81920];
+            long read = 0; int n;
+            while ((n = await input.ReadAsync(buffer)) > 0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0, n));
+                read += n;
+                if (total is > 0) progress?.Report((double)read / total.Value);
+            }
+            return path;
+        }
+        catch { return null; }
     }
 
     private static string Str(JsonElement el, string prop) =>
