@@ -18,6 +18,7 @@ namespace NyxarConcord.Services;
 public sealed class VoiceService : IDisposable
 {
     private readonly WaveFormat _format = new(16000, 16, 1);
+    private readonly NoiseSuppressor _rnnoise = new();
     private readonly object _lock = new();
     private readonly Dictionary<string, BufferedWaveProvider> _inputs = new();
     // Pessoas que eu silenciei só para mim (não reproduz o áudio delas).
@@ -138,6 +139,10 @@ public sealed class VoiceService : IDisposable
 
         // Sem supressão: envia direto.
         if (!NoiseSuppression) { FrameCaptured?.Invoke(buffer); return; }
+
+        // Supressão por rede neural (RNNoise), se a DLL estiver disponível — bem
+        // melhor que o gate. Se não, cai no gate adaptativo abaixo.
+        if (_rnnoise.Process(buffer)) { FrameCaptured?.Invoke(buffer); return; }
 
         // 1) Passa-alta: remove rumble/zumbido de baixa frequência.
         HighPass(buffer);
@@ -397,5 +402,5 @@ public sealed class VoiceService : IDisposable
         }
     }
 
-    public void Dispose() => Stop();
+    public void Dispose() { Stop(); _rnnoise.Dispose(); }
 }

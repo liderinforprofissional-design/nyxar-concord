@@ -30,6 +30,11 @@
 
                 <!-- Criar servidor + configurações (base) -->
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,12">
+                    <Button Style="{StaticResource IconRailButton}" ToolTip="Amigos (online e offline)" Click="Friends_Click">
+                        <Path Data="{StaticResource Icon.People}" Fill="{StaticResource Text.Primary}"
+                              Width="24" Height="24" Stretch="Uniform" />
+                    </Button>
+                    <Border Height="1" Background="{StaticResource Border.Soft}" Margin="16,4,16,4" />
                     <Button Style="{StaticResource IconRailButton}" ToolTip="Criar servidor" Click="CreateServer_Click">
                         <Path Data="{StaticResource Icon.Plus}" Fill="{StaticResource Online}"
                               Width="22" Height="22" Stretch="Uniform" />
@@ -618,6 +623,31 @@
                                                     <TextBlock Text="{Binding SharerName}" Foreground="White" FontSize="11" />
                                                 </StackPanel>
                                             </Border>
+                                            <!-- Espectador: mutar o áudio desta transmissão -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="8"
+                                                    Cursor="Hand" Click="StreamMute_Click" Tag="{Binding}"
+                                                    ToolTip="Mutar/ativar o áudio desta transmissão"
+                                                    Visibility="{Binding IsSelf, Converter={StaticResource InverseBoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="tv" Width="34" Height="34" CornerRadius="10"
+                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="tv" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <Grid>
+                                                    <Path Width="17" Height="17" Stretch="Uniform" Fill="{StaticResource Online}" Data="{StaticResource Icon.Headset}"
+                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource InverseBoolToVis}}" />
+                                                    <Path Width="17" Height="17" Stretch="Uniform" Fill="{StaticResource Badge}" Data="{StaticResource Icon.HeadsetOff}"
+                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                                </Grid>
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -633,6 +663,31 @@
                                     Background="#B0000000" CornerRadius="6" Padding="10,5">
                                 <TextBlock Text="{Binding MaximizedStream.SharerName}" Foreground="White" />
                             </Border>
+                            <!-- Espectador: mutar o áudio da transmissão maximizada -->
+                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="14"
+                                    Cursor="Hand" Click="StreamMute_Click" Tag="{Binding MaximizedStream}"
+                                    ToolTip="Mutar/ativar o áudio desta transmissão"
+                                    Visibility="{Binding MaximizedStream.IsSelf, Converter={StaticResource InverseBoolToVis}}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="mv" Width="40" Height="40" CornerRadius="11"
+                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="mv" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Grid>
+                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Online}" Data="{StaticResource Icon.Headset}"
+                                          Visibility="{Binding MaximizedStream.IsMutedByMe, Converter={StaticResource InverseBoolToVis}}" />
+                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}" Data="{StaticResource Icon.HeadsetOff}"
+                                          Visibility="{Binding MaximizedStream.IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                </Grid>
+                            </Button>
                         </Grid>
 
                         <!-- Headset: silenciar o áudio do PC na transmissão (verde = ligado, vermelho = mudo) -->
@@ -756,6 +811,32 @@
                                                     <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}"
                                                           Data="{StaticResource Icon.HeadsetOff}"
                                                           Visibility="{Binding DataContext.IsShareAudioMuted, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
+                                                </Grid>
+                                            </Button>
+                                            <!-- Headset para quem ASSISTE: muta a transmissão do outro (verde ouvindo / vermelho mudo) -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
+                                                    Cursor="Hand" Click="GalleryMute_Click" ToolTip="Mutar/ativar o áudio desta transmissão"
+                                                    Visibility="{Binding ShowViewerMute, Converter={StaticResource BoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="gv" Width="40" Height="40" CornerRadius="11"
+                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="gv" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <Grid>
+                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Online}"
+                                                          Data="{StaticResource Icon.Headset}"
+                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource InverseBoolToVis}}" />
+                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}"
+                                                          Data="{StaticResource Icon.HeadsetOff}"
+                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
                                             </Button>
                                         </Grid>

@@ -121,6 +121,9 @@ public partial class MainWindow : Window
         if (sender is Button { Tag: Server server }) _vm.SelectServer(server);
     }
 
+    private void Friends_Click(object sender, RoutedEventArgs e)
+        => new FriendsWindow(_vm) { Owner = this }.ShowDialog();
+
     private void CreateServer_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new CreateServerDialog { Owner = this };
@@ -199,6 +202,16 @@ public partial class MainWindow : Window
 
     private void StopShare_Click(object sender, RoutedEventArgs e) => _vm.StopScreenShare();
     private void ShareAudio_Click(object sender, RoutedEventArgs e) => _vm.ToggleShareAudio();
+
+    // Espectador muta a transmissão de outra pessoa (localmente).
+    private void GalleryMute_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: NyxarConcord.ViewModels.GalleryTile t }) _vm.ToggleMuteForPeer(t.PeerId);
+    }
+    private void StreamMute_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: NyxarConcord.ViewModels.StreamTile t }) _vm.ToggleMuteForPeer(t.SharerId);
+    }
 
     // --- Galeria de participantes ---
     private void ToggleGallery_Click(object sender, RoutedEventArgs e) => _vm.ToggleGalleryView();

@@ -38,6 +38,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<Server> Servers { get; } = new();
     public ObservableCollection<ChatMessage> Messages { get; } = new();
 
+    // Amigos/contatos (persistidos para mostrar também os offline).
+    private readonly FriendStore _friendStore = new();
+    private readonly Dictionary<string, FriendViewModel> _friends = new();
+    public ObservableCollection<FriendViewModel> OnlineFriends { get; } = new();
+    public ObservableCollection<FriendViewModel> OfflineFriends { get; } = new();
+    public string FriendsHeader => $"AMIGOS — {OnlineFriends.Count} online / {_friends.Count} no total";
+
     public string SelfId => Identity.PeerId;
     public string SelfName => Identity.DisplayName;
     public string PeerId => Identity.PeerId;
@@ -93,7 +100,64 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Servers.Add(server);
         }
 
+        // Amigos salvos começam offline até aparecerem online.
+        foreach (var r in _friendStore.Load())
+        {
+            if (r.Id == SelfId || _friends.ContainsKey(r.Id)) continue;
+            var fvm = new FriendViewModel(r);
+            _friends[r.Id] = fvm;
+            OfflineFriends.Add(fvm);
+        }
+
         SendCommand = new RelayCommand(_ => _ = SendAsync(), _ => CanSend());
+    }
+
+    // ============================================================
+    //  Amigos / contatos
+    // ============================================================
+
+    /// <summary>Registra/atualiza um amigo e seu estado online, mantendo as listas.</summary>
+    private void UpsertFriend(string id, string name, string handle, string? avatar, bool online)
+    {
+        if (string.IsNullOrEmpty(id) || id == SelfId) return;
+        if (!_friends.TryGetValue(id, out var f))
+        {
+            f = new FriendViewModel(new FriendRecord { Id = id, Name = name, Handle = handle, AvatarPath = avatar ?? "" });
+            _friends[id] = f;
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(name)) f.Name = name;
+            if (!string.IsNullOrWhiteSpace(handle)) f.Handle = handle;
+            if (!string.IsNullOrWhiteSpace(avatar)) f.AvatarPath = avatar;
+        }
+        f.IsOnline = online;
+
+        // Coloca na lista certa (online no topo, offline embaixo).
+        var target = online ? OnlineFriends : OfflineFriends;
+        var other = online ? OfflineFriends : OnlineFriends;
+        if (other.Contains(f)) other.Remove(f);
+        if (!target.Contains(f)) target.Add(f);
+
+        OnPropertyChanged(nameof(FriendsHeader));
+        _friendStore.Save(_friends.Values.Select(x => x.ToRecord()));
+    }
+
+    /// <summary>Foto de perfil conhecida de um peer (para o card de perfil).</summary>
+    public string GetPeerAvatar(string id)
+    {
+        if (_avatars.TryGetValue(id, out var a) && !string.IsNullOrEmpty(a)) return a;
+        return _friends.TryGetValue(id, out var f) ? f.AvatarPath : "";
+    }
+
+    /// <summary>Atualiza só a foto de um amigo (quando chega pela rede).</summary>
+    private void SetFriendAvatar(string id, string avatar)
+    {
+        if (_friends.TryGetValue(id, out var f))
+        {
+            f.AvatarPath = avatar;
+            _friendStore.Save(_friends.Values.Select(x => x.ToRecord()));
+        }
     }
 
     // ============================================================
@@ -499,6 +563,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (room.IsAudio)
         {
             AddSelfToChannel(room);
+            // Lista na hora quem já sabemos estar nesta sala (sem esperar os "acks").
+            foreach (var kv in _peerRoom)
+            {
+                if (kv.Value != room.Id || kv.Key == SelfId) continue;
+                if (room.Members.Any(m => m.PeerId == kv.Key)) continue;
+                string nm = _currentServer?.Members.FirstOrDefault(m => m.PeerId == kv.Key)?.DisplayName
+                            ?? (_relayPeers.TryGetValue(kv.Key, out var rp) ? rp.DisplayName : "Usuário");
+                var rmem = new RoomMember { PeerId = kv.Key, DisplayName = nm };
+                ApplyMuteState(rmem);
+                room.Members.Add(rmem);
+            }
             room.Members.CollectionChanged += OnRoomMembersChanged;
             int dev = int.TryParse(Identity.Audio.InputDeviceId, out var n) ? n : -1;
             _voice.Muted = _isMicMuted;
@@ -535,7 +610,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void StartPresenceHeartbeat(Room room)
     {
         StopPresenceHeartbeat();
-        _presenceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _presenceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _presenceTimer.Tick += (_, _) =>
         {
             if (_currentRoom?.Id != room.Id || !_currentRoom.IsAudio) { StopPresenceHeartbeat(); return; }
@@ -1044,6 +1119,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly HashSet<string> _locallyMuted = new();
     // Foto de perfil (caminho local salvo) de cada peer.
     private readonly Dictionary<string, string> _avatars = new();
+    // Em qual sala cada peer está agora (para listar na hora ao entrar).
+    private readonly Dictionary<string, string> _peerRoom = new();
 
     // Aplica os estados conhecidos (mudo/foto) a um membro recém-criado.
     private void ApplyMuteState(RoomMember m)
@@ -1071,6 +1148,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _avatars[peer.Id] = file;
         foreach (var m in AllMemberInstances(peer.Id)) m.AvatarPath = file;
         UpdateGalleryTile(peer.Id, t => t.AvatarPath = file);
+        SetFriendAvatar(peer.Id, file);
     }
 
     // Marca "mic mutado" (próprio, propagado) em todas as listas onde a pessoa aparece.
@@ -1094,11 +1172,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void TogglePeerMute(RoomMember member)
     {
         if (member.IsSelf) return;
-        bool mute = !member.IsMutedByMe;
-        if (mute) _locallyMuted.Add(member.PeerId); else _locallyMuted.Remove(member.PeerId);
-        _voice.SetPeerMuted(member.PeerId, mute);
-        foreach (var m in AllMemberInstances(member.PeerId)) m.IsMutedByMe = mute;
-        UpdateGalleryTile(member.PeerId, t => t.IsMutedByMe = mute);
+        ToggleMuteForPeer(member.PeerId);
+    }
+
+    /// <summary>Silencia/reativa localmente o áudio de um peer (usado também pelos
+    /// botões de headset na transmissão, para quem assiste).</summary>
+    public void ToggleMuteForPeer(string peerId)
+    {
+        if (string.IsNullOrEmpty(peerId) || peerId == SelfId) return;
+        bool mute = !_locallyMuted.Contains(peerId);
+        if (mute) _locallyMuted.Add(peerId); else _locallyMuted.Remove(peerId);
+        _voice.SetPeerMuted(peerId, mute);
+        foreach (var m in AllMemberInstances(peerId)) m.IsMutedByMe = mute;
+        UpdateGalleryTile(peerId, t => t.IsMutedByMe = mute);
+        var st = Streams.FirstOrDefault(s => s.SharerId == peerId);
+        if (st is not null) st.IsMutedByMe = mute;
         if (mute) _sfx.MuteOn(); else _sfx.MuteOff();
     }
 
@@ -1353,7 +1441,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (t is null)
         {
             if (Streams.Count >= 4) return null; // no máximo 4 telas
-            t = new StreamTile { SharerId = sharerId, SharerName = name, IsSelf = isSelf };
+            t = new StreamTile { SharerId = sharerId, SharerName = name, IsSelf = isSelf,
+                                 IsMutedByMe = _locallyMuted.Contains(sharerId) };
             Streams.Add(t);
             RaiseStageState();
         }
@@ -1464,10 +1553,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return Task.CompletedTask;
     }
 
-    // Alvo de ~15 quadros/s; a checagem de "mudou" segura telas estáticas.
+    // ~12 quadros/s; a checagem de "mudou" segura telas estáticas e o "drop se ocupado"
+    // impede que os quadros de tela engulam a fila do relay e travem a voz.
+    private int _screenSending; // 0 = livre, 1 = enviando
     private async Task ShareLoopAsync(string roomId, CancellationToken token)
     {
-        const int frameMs = 66; // ~15 fps
+        const int frameMs = 33; // ~30 fps (o "descarta se ocupado" protege a voz)
         var sw = new System.Diagnostics.Stopwatch();
         while (!token.IsCancellationRequested && IsSharingScreen)
         {
@@ -1484,32 +1575,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var src = _shareSource;
         if (!IsSharingScreen || src is null) return;
 
-        byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight);
-        if (jpeg is null) return;
-
-        // Só envia se a tela mudou; keyframe a cada 2s (pra quem entra no meio).
-        ulong hash = FnvHash(jpeg);
-        bool changed = hash != _lastFrameHash;
-        bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
-        if (!changed && !keyframe) return;
-        _lastFrameHash = hash;
-        _lastFrameSentAt = DateTime.UtcNow;
-
-        // Preview local (frozen -> pode cruzar para a UI).
-        var selfFrame = DecodeJpeg(jpeg);
-        Application.Current.Dispatcher.BeginInvoke(() =>
+        // Se o quadro anterior ainda está sendo enviado, pula este (a voz tem prioridade).
+        if (System.Threading.Interlocked.CompareExchange(ref _screenSending, 1, 0) == 1) return;
+        try
         {
-            var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
-            if (self is not null) self.Frame = selfFrame;
-            UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
-        });
+            byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 42);
+            if (jpeg is null) { _screenSending = 0; return; }
 
-        string b64 = Convert.ToBase64String(jpeg);
-        if (_relay.IsConnected)
-            _ = _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
-        else
-            foreach (var p in ServerPeers())
-                _ = _session.SendSignalAsync(p, new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
+            // Só envia se a tela mudou; keyframe a cada 2s (pra quem entra no meio).
+            ulong hash = FnvHash(jpeg);
+            bool changed = hash != _lastFrameHash;
+            bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
+            if (!changed && !keyframe) { _screenSending = 0; return; }
+            _lastFrameHash = hash;
+            _lastFrameSentAt = DateTime.UtcNow;
+
+            // Preview local (frozen -> pode cruzar para a UI).
+            var selfFrame = DecodeJpeg(jpeg);
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
+                if (self is not null) self.Frame = selfFrame;
+                UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
+            });
+
+            string b64 = Convert.ToBase64String(jpeg);
+            if (_relay.IsConnected)
+                _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 })
+                      .ContinueWith(_ => _screenSending = 0);
+            else
+            {
+                foreach (var p in ServerPeers())
+                    _ = _session.SendSignalAsync(p, new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
+                _screenSending = 0;
+            }
+        }
+        catch { _screenSending = 0; }
     }
 
     public void StopScreenShare()
@@ -1629,6 +1730,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Diag.Log("HELLO", $"{name}/{id}");
         Application.Current.Dispatcher.Invoke(() =>
         {
+            UpsertFriend(id, name, handle, _avatars.GetValueOrDefault(id), online: true);
             var peer = GetRelayPeer(id, name, handle);
             var pvm = Peers.FirstOrDefault(p => p.Peer.Id == id);
             if (pvm is null) { Peers.Add(new PeerViewModel(peer)); _sfx.UserJoined(); }
@@ -1675,6 +1777,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Diag.Log("LEFT", id);
         Application.Current.Dispatcher.Invoke(() =>
         {
+            if (_friends.TryGetValue(id, out var fr)) UpsertFriend(id, fr.Name, fr.Handle, null, online: false);
+            _peerRoom.Remove(id);
             if (_currentServer is not null)
             {
                 var sm = _currentServer.Members.FirstOrDefault(m => m.PeerId == id);
@@ -1863,6 +1967,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (room is null) { Diag.Log("PRESENCE", $"sala {msg.RoomId} nao encontrada localmente"); return; }
         if (joined)
         {
+            _peerRoom[peer.Id] = room.Id;
             if (room.Members.All(m => m.PeerId != peer.Id))
             {
                 var nm = new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName };
@@ -1882,6 +1987,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         else
         {
+            if (_peerRoom.TryGetValue(peer.Id, out var r) && r == room.Id) _peerRoom.Remove(peer.Id);
             var m = room.Members.FirstOrDefault(x => x.PeerId == peer.Id);
             if (m is not null) room.Members.Remove(m);
         }

@@ -9,7 +9,7 @@
     <RootNamespace>NyxarConcord</RootNamespace>
     <AssemblyName>NyxarConcord</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.10.0</Version>
+    <Version>0.11.0</Version>
     <Product>Nyxar Concord</Product>
     <!-- Ãcone do app (barra de tarefas / .exe) -->
     <ApplicationIcon>Assets\nyxar.ico</ApplicationIcon>
@@ -39,6 +39,15 @@
     </None>
   </ItemGroup>
 
+  <!-- Supressor de ruído RNNoise (nativo). Coloque rnnoise.dll em src\NyxarConcord\rnnoise\.
+       Se não existir, o app usa o supressor simples embutido automaticamente. -->
+  <ItemGroup>
+    <None Include="rnnoise\**\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
   <!--
     Melhorias futuras de mÃ­dia:
     Codec de Ã¡udio de baixa latÃªncia (Opus):
@@ -48,6 +57,7 @@
   -->
 
 </Project>
+
 
 
 
