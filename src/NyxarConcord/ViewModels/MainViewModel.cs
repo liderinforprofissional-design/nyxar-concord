@@ -1558,12 +1558,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _screenSending; // 0 = livre, 1 = enviando
     private long _bytesThisSec;
     private DateTime _secStart;
-    // ~300 KB/s de tela (≈400 KB/s na rede com o base64). Bem mais seguro para jogar junto.
-    private const int ScreenMaxBytesPerSec = 300_000;
+    // Teto de banda da tela: protege o jogo/voz. Alvo de fps é 30, mas se a cena for
+    // pesada o teto derruba quadros sozinho (fica fluido no que a rede aguentar).
+    private const int ScreenMaxBytesPerSec = 450_000;
 
     private async Task ShareLoopAsync(string roomId, CancellationToken token)
     {
-        const int frameMs = 66; // ~15 fps de teto; o teto de banda reduz mais se precisar
+        const int frameMs = 33; // alvo ~30 fps; o teto de banda + "descarta se ocupado" seguram quando precisa
         _bytesThisSec = 0; _secStart = DateTime.UtcNow;
         var sw = new System.Diagnostics.Stopwatch();
         while (!token.IsCancellationRequested && IsSharingScreen)
