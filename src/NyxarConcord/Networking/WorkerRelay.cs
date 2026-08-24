@@ -75,12 +75,12 @@ public sealed class WorkerRelay : IDisposable
         Kind = MessageKind.Hello, SenderId = _selfId, SenderName = _selfName, Handle = _handle
     });
 
-    public Task SendToRoomAsync(ChatMessage m)
+    public Task SendToRoomAsync(ChatMessage m, bool lowPriority = false)
     {
         m.SenderId = _selfId;
         m.SenderName = _selfName;
         m.To = null;
-        return SendAsync(m);
+        return SendAsync(m, lowPriority);
     }
 
     public Task SendToPeerAsync(string peerId, ChatMessage m)
@@ -91,7 +91,7 @@ public sealed class WorkerRelay : IDisposable
         return SendAsync(m);
     }
 
-    private async Task SendAsync(ChatMessage m)
+    private async Task SendAsync(ChatMessage m, bool lowPriority = false)
     {
         if (_ws is not { State: WebSocketState.Open }) return;
         // Loga tudo, menos o que é muito frequente (voz/tela/pedaços de arquivo),
@@ -101,7 +101,14 @@ public sealed class WorkerRelay : IDisposable
         else if (m.Signal != SignalType.FileChunk)
             Diag.Log("RELAY-TX", $"{m.Kind}/{m.Signal} to={m.To ?? "(sala)"} room={m.RoomId}");
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(m);
-        await _sendLock.WaitAsync();
+
+        // Baixa prioridade (vídeo da tela): se o canal está ocupado (áudio/voz enviando),
+        // descarta este quadro em vez de esperar. Assim o áudio nunca fica preso atrás do vídeo.
+        if (lowPriority)
+        {
+            if (!await _sendLock.WaitAsync(0)) return;
+        }
+        else await _sendLock.WaitAsync();
         try { await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None); }
         catch { }
         finally { _sendLock.Release(); }

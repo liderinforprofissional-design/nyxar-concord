@@ -1632,7 +1632,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
             string b64 = Convert.ToBase64String(jpeg);
             if (_relay.IsConnected)
-                _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 })
+                _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 }, lowPriority: true)
                       .ContinueWith(_ => _screenSending = 0);
             else
             {

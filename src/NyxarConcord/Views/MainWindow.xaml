@@ -828,8 +828,11 @@
                                     <Border Margin="6" CornerRadius="10" Background="{Binding Background}" Cursor="Hand"
                                             ClipToBounds="True" MouseLeftButtonUp="GalleryTile_Click" Tag="{Binding}">
                                         <Grid>
-                                            <!-- Tela transmitida preenche o card -->
-                                            <Image Source="{Binding Frame}" Stretch="UniformToFill"
+                                            <!-- Fundo preto atrás da transmissão (moldura definida) -->
+                                            <Border Background="#05070E"
+                                                    Visibility="{Binding ShowAvatar, Converter={StaticResource InverseBoolToVis}}" />
+                                            <!-- Tela transmitida INTEIRA dentro do card (sem cortar) -->
+                                            <Image Source="{Binding Frame}" Stretch="Uniform" Margin="2"
                                                    RenderOptions.BitmapScalingMode="LowQuality"
                                                    Visibility="{Binding ShowAvatar, Converter={StaticResource InverseBoolToVis}}" />
                                             <!-- Avatar centralizado -->
