@@ -96,7 +96,7 @@ public sealed class WorkerRelay : IDisposable
         if (_ws is not { State: WebSocketState.Open }) return;
         // Loga tudo, menos o que é muito frequente (voz/tela/pedaços de arquivo),
         // mas conta a mídia periodicamente pra sabermos se ela está saindo.
-        if (m.Signal == SignalType.VoiceFrame) { if (++_txVoice % 100 == 0) Diag.Log("MEDIA-TX", $"voz enviada x{_txVoice}"); }
+        if (m.Signal is SignalType.VoiceFrame or SignalType.ScreenAudioFrame) { if (++_txVoice % 100 == 0) Diag.Log("MEDIA-TX", $"voz enviada x{_txVoice}"); }
         else if (m.Signal == SignalType.ScreenFrame) { if (++_txScreen % 30 == 0) Diag.Log("MEDIA-TX", $"tela enviada x{_txScreen}"); }
         else if (m.Signal != SignalType.FileChunk)
             Diag.Log("RELAY-TX", $"{m.Kind}/{m.Signal} to={m.To ?? "(sala)"} room={m.RoomId}");
@@ -155,7 +155,7 @@ public sealed class WorkerRelay : IDisposable
             string from = string.IsNullOrEmpty(msg.From) ? msg.SenderId : msg.From!;
             if (from == _selfId) return; // ignora eco
 
-            if (msg.Signal == SignalType.VoiceFrame) { if (++_rxVoice % 100 == 0) Diag.Log("MEDIA-RX", $"voz recebida de {from} x{_rxVoice}"); }
+            if (msg.Signal is SignalType.VoiceFrame or SignalType.ScreenAudioFrame) { if (++_rxVoice % 100 == 0) Diag.Log("MEDIA-RX", $"voz recebida de {from} x{_rxVoice}"); }
             else if (msg.Signal == SignalType.ScreenFrame) { if (++_rxScreen % 30 == 0) Diag.Log("MEDIA-RX", $"tela recebida de {from} x{_rxScreen}"); }
             else if (msg.Signal != SignalType.FileChunk)
                 Diag.Log("RELAY-RX", $"{msg.Kind}/{msg.Signal} from={from} to={msg.To ?? "(sala)"} room={msg.RoomId}");

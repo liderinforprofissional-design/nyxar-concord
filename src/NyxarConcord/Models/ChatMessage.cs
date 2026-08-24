@@ -56,7 +56,10 @@ public enum SignalType
     /// <summary>Estado do microfone (mutado/ativo). Text = "1" mutado, "0" ativo.</summary>
     MicState,
     /// <summary>Perfil do usuário (nome/foto). Foto em PNG/base64 no campo Text.</summary>
-    UserUpdate
+    UserUpdate,
+    /// <summary>Áudio do computador na transmissão (PCM/base64) — tocado num buffer
+    /// separado da voz, para não estourar o áudio de quem ouve.</summary>
+    ScreenAudioFrame
 }
 
 /// <summary>

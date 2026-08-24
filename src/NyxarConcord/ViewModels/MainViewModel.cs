@@ -74,6 +74,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _voice.NoiseSuppression = identity.Audio.NoiseSuppression;
         _voice.SelfId = identity.PeerId;
         _voice.FrameCaptured += OnVoiceCaptured;
+        _voice.DesktopFrameCaptured += OnDesktopAudioCaptured;
         _voice.SpeakingChanged += OnSpeakingChanged;
 
         _sfx.Enabled = identity.SoundsEnabled;
@@ -1239,6 +1240,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _ = _session.SendSignalAsync(peer, new ChatMessage { Signal = SignalType.VoiceFrame, RoomId = roomId, Text = b64 });
     }
 
+    // Áudio do computador (transmissão) — vai num sinal SEPARADO da voz,
+    // para o ouvinte tocar num buffer próprio (senão a voz estoura e engasga).
+    private void OnDesktopAudioCaptured(byte[] pcm)
+    {
+        var roomId = _voiceRoomId;
+        if (roomId is null || !IsSharingScreen) return;
+        string b64 = Convert.ToBase64String(pcm);
+        if (_relay.IsConnected)
+        {
+            _ = _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenAudioFrame, RoomId = roomId, Text = b64 });
+            return;
+        }
+        foreach (var peer in _voiceTargets)
+            _ = _session.SendSignalAsync(peer, new ChatMessage { Signal = SignalType.ScreenAudioFrame, RoomId = roomId, Text = b64 });
+    }
+
     private void UpdateVoiceTargets()
     {
         if (_currentRoom is null || !_currentRoom.IsAudio)
@@ -1852,6 +1869,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (!string.IsNullOrEmpty(msg.Text) && msg.RoomId == _currentRoom?.Id)
                 try { _voice.PlayFrom(peer.Id, Convert.FromBase64String(msg.Text)); } catch { }
+            return;
+        }
+
+        // Áudio da transmissão: buffer separado (peer#scr), sem afetar o anel de "falando".
+        if (msg.Signal == SignalType.ScreenAudioFrame)
+        {
+            if (!string.IsNullOrEmpty(msg.Text) && msg.RoomId == _currentRoom?.Id)
+                try { _voice.PlayFrom(peer.Id, Convert.FromBase64String(msg.Text), peer.Id + "#scr", markSpeaking: false); } catch { }
             return;
         }
 

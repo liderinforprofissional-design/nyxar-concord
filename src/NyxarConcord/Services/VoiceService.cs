@@ -56,6 +56,9 @@ public sealed class VoiceService : IDisposable
     /// <summary>Um quadro de áudio capturado do microfone (PCM 16-bit).</summary>
     public event Action<byte[]>? FrameCaptured;
 
+    /// <summary>Um quadro de áudio do computador (transmissão) — enviado separado da voz.</summary>
+    public event Action<byte[]>? DesktopFrameCaptured;
+
     /// <summary>Alguém começou/parou de falar (id do participante, falando?).</summary>
     public event Action<string, bool>? SpeakingChanged;
 
@@ -257,24 +260,27 @@ public sealed class VoiceService : IDisposable
         lock (_lock) return _mutedPeers.Contains(peerId);
     }
 
-    /// <summary>Reproduz um quadro recebido de um participante (mixado).</summary>
-    public void PlayFrom(string peerId, byte[] pcm)
+    /// <summary>Reproduz um quadro recebido de um participante (mixado).
+    /// bufferKey permite um fluxo separado (ex.: áudio da transmissão) sem estourar a voz;
+    /// o mudo é sempre decidido pelo peer real (peerId).</summary>
+    public void PlayFrom(string peerId, byte[] pcm, string? bufferKey = null, bool markSpeaking = true)
     {
-        // Indicador "falando" do participante remoto.
-        if (Rms(pcm) > SpeakRms) MarkVoice(peerId);
+        // Indicador "falando" do participante remoto (não para o áudio da transmissão).
+        if (markSpeaking && Rms(pcm) > SpeakRms) MarkVoice(peerId);
 
+        string key = bufferKey ?? peerId;
         lock (_lock)
         {
             if (_mixer is null) return;
-            if (_mutedPeers.Contains(peerId)) return; // silenciado só para mim
-            if (!_inputs.TryGetValue(peerId, out var buf))
+            if (_mutedPeers.Contains(peerId)) return; // silenciado só para mim (voz + tela)
+            if (!_inputs.TryGetValue(key, out var buf))
             {
                 buf = new BufferedWaveProvider(_format)
                 {
                     DiscardOnBufferOverflow = true,
                     BufferDuration = TimeSpan.FromSeconds(3)
                 };
-                _inputs[peerId] = buf;
+                _inputs[key] = buf;
                 _mixer.AddMixerInput(buf.ToSampleProvider());
             }
             buf.AddSamples(pcm, 0, pcm.Length);
@@ -358,7 +364,7 @@ public sealed class VoiceService : IDisposable
                 if (got <= 0) break;
                 if (DesktopAudioMuted) { sent++; continue; }
                 if (got < frame.Length) Array.Clear(frame, got, frame.Length - got);
-                FrameCaptured?.Invoke(frame); // vai como voz minha -> ouvintes escutam
+                DesktopFrameCaptured?.Invoke(frame); // fluxo SEPARADO da voz
                 sent++;
             }
             // Se sobrou áudio atrasado demais no buffer, joga fora para não acumular latência.
