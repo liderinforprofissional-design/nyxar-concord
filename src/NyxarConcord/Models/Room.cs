@@ -80,6 +80,10 @@ public sealed class RoomMember : INotifyPropertyChanged
     private bool _isMuted;
     public bool IsMuted { get => _isMuted; set => Set(ref _isMuted, value); }
 
+    /// <summary>Volume desta pessoa para mim (1 = 100%). Ajustável no menu de contexto.</summary>
+    private double _volume = 1.0;
+    public double Volume { get => _volume; set => Set(ref _volume, value); }
+
     /// <summary>Está falando agora (anel verde no avatar).</summary>
     private bool _isSpeaking;
     public bool IsSpeaking { get => _isSpeaking; set => Set(ref _isSpeaking, value); }

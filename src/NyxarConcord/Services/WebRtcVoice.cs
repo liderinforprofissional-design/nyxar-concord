@@ -4,46 +4,54 @@ using System.Collections.Concurrent;
 using SIPSorcery.Net;
 using SIPSorcery.Media;
 using SIPSorceryMedia.Abstractions;
-using SIPSorceryMedia.FFmpeg;
+using SIPSorceryMedia.Encoders;
 using NyxarConcord.Models;
 using NyxarConcord.Networking;
 
 namespace NyxarConcord.Services;
 
 /// <summary>
-/// Voz + tela por WebRTC em malha (mesh): cada participante conecta direto com os outros.
+/// Mídia por WebRTC em malha (mesh): cada participante conecta direto com os outros.
 /// - A "apresentação" (SDP/ICE) passa pelo relay do Cloudflare (o mesmo /ws).
 /// - As credenciais TURN vêm de /turn (permite atravessar NAT fechado).
-/// - Áudio: PCMU 8 kHz. Vídeo (tela): H264 (FFmpeg), com bitrate alto p/ 720p nítido.
-///   As faixas são negociadas juntas ao conectar; compartilhar tela não renegocia.
+/// - Vídeo (tela): VP8 (libvpx, embutido no pacote — sem DLLs à mão).
+/// - Áudio: PCMU 8 kHz — SÓ quando <see cref="VideoOnly"/> é falso. No Nyxar hoje a
+///   voz continua indo pelo relay; aqui usamos WebRTC só para o VÍDEO da transmissão
+///   (com fallback JPEG para quem não conectar), por isso VideoOnly = true.
 /// </summary>
 public sealed class WebRtcVoice : IDisposable
 {
-    // Bitrate do vídeo da tela (H264). ~3,5 Mbps deixa o 720p nítido.
-    private const long VideoAvgBitrate = 3_500_000;
-    private const long VideoMaxBitrate = 6_000_000;
-
     private readonly string _selfId;
     private readonly VoiceService _voice;
     private readonly WorkerRelay _relay;
 
     private readonly AudioEncoder _encoder = new();
     private readonly AudioFormat _pcmu;
-    private readonly VideoFormat _h264 = new(VideoCodecsEnum.H264, 96, 90000, "packetization-mode=1");
+    private readonly VideoFormat _vp8 = new(VideoCodecsEnum.VP8, 96, 90000);
 
     private readonly ConcurrentDictionary<string, RTCPeerConnection> _pcs = new();
     private readonly ConcurrentDictionary<string, bool> _ready = new();
-    private readonly ConcurrentDictionary<string, FFmpegVideoEncoder> _video = new();
+    private readonly ConcurrentDictionary<string, VpxVideoEncoder> _video = new();
 
     private List<RTCIceServer> _iceServers = new();
     private string? _roomId;
     private bool _turnLoaded;
     private long _lastVideoTick;
 
-    private static bool _ffmpegReady;
-    private static readonly object _ffmpegLock = new();
+    /// <summary>Quando verdadeiro, negocia SÓ vídeo (a voz vai por outro caminho/relay).</summary>
+    public bool VideoOnly { get; set; }
 
     public bool IsActive => _roomId is not null;
+
+    /// <summary>Este par está conectado (pronto para receber mídia)?</summary>
+    public bool IsPeerReady(string peerId) => _ready.TryGetValue(peerId, out var ok) && ok;
+
+    /// <summary>Pares conectados por WebRTC agora (para decidir quem recebe JPEG de fallback).</summary>
+    public IReadOnlyCollection<string> ReadyPeers()
+        => _ready.Where(kv => kv.Value).Select(kv => kv.Key).ToList();
+
+    /// <summary>Há pelo menos um par recebendo vídeo por WebRTC?</summary>
+    public bool AnyVideoReady => _ready.Any(kv => kv.Value);
 
     /// <summary>Quadro de vídeo (tela) decodificado: (peerId, BGR, largura, altura, stride).</summary>
     public event Action<string, byte[], int, int, int>? VideoFrameDecoded;
@@ -90,6 +98,7 @@ public sealed class WebRtcVoice : IDisposable
 
     public void SendFrame(byte[] pcm16k)
     {
+        if (VideoOnly) return;                 // voz vai por outro caminho (relay)
         if (!IsActive || _pcs.IsEmpty) return;
         try
         {
@@ -105,7 +114,7 @@ public sealed class WebRtcVoice : IDisposable
         catch { }
     }
 
-    // ---------------- Envio de vídeo (tela) — H264 ----------------
+    // ---------------- Envio de vídeo (tela) — VP8 ----------------
 
     /// <summary>Envia um quadro de tela (BGR 24-bit) para todos os pares conectados.</summary>
     public void SendVideoFrame(byte[] bgr, int width, int height)
@@ -123,7 +132,7 @@ public sealed class WebRtcVoice : IDisposable
             if (!_video.TryGetValue(kv.Key, out var enc)) continue;
             try
             {
-                byte[]? encoded = enc.EncodeVideo(width, height, bgr, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264);
+                byte[]? encoded = enc.EncodeVideo(width, height, bgr, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
                 if (encoded is { Length: > 0 })
                     kv.Value.SendVideo(durationRtp, encoded);
             }
@@ -153,40 +162,40 @@ public sealed class WebRtcVoice : IDisposable
     {
         var pc = new RTCPeerConnection(new RTCConfiguration { iceServers = _iceServers });
 
-        // Faixa de áudio (PCMU).
-        var audioTrack = new MediaStreamTrack(new List<AudioFormat> { _pcmu }, MediaStreamStatusEnum.SendRecv);
-        pc.addTrack(audioTrack);
-
-        // Faixa de vídeo (H264) — negociada já aqui para não renegociar ao compartilhar tela.
-        if (EnsureFFmpeg())
+        // Faixa de áudio (PCMU) — só quando NÃO é vídeo-apenas (senão a voz duplicaria
+        // com o relay). No Nyxar de hoje, VideoOnly = true, então isto é pulado.
+        if (!VideoOnly)
         {
-            try
+            var audioTrack = new MediaStreamTrack(new List<AudioFormat> { _pcmu }, MediaStreamStatusEnum.SendRecv);
+            pc.addTrack(audioTrack);
+        }
+
+        // Faixa de vídeo (VP8) — negociada já aqui para não renegociar ao compartilhar tela.
+        try
+        {
+            var enc = new VpxVideoEncoder();
+            _video[peerId] = enc;
+
+            var videoTrack = new MediaStreamTrack(new List<VideoFormat> { _vp8 }, MediaStreamStatusEnum.SendRecv);
+            pc.addTrack(videoTrack);
+
+            pc.OnVideoFrameReceived += (rep, ts, frame, fmt) =>
             {
-                var enc = new FFmpegVideoEncoder();
-                try { enc.SetBitrate(VideoAvgBitrate, null, null, VideoMaxBitrate); } catch { }
-                _video[peerId] = enc;
-
-                var videoTrack = new MediaStreamTrack(new List<VideoFormat> { _h264 }, MediaStreamStatusEnum.SendRecv);
-                pc.addTrack(videoTrack);
-
-                pc.OnVideoFrameReceived += (rep, ts, frame, fmt) =>
+                try
                 {
-                    try
+                    foreach (var img in enc.DecodeVideo(frame, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8))
                     {
-                        foreach (var img in enc.DecodeVideo(frame, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264))
-                        {
-                            int w = (int)img.Width, h = (int)img.Height;
-                            VideoFrameDecoded?.Invoke(peerId, img.Sample, w, h, w * 3);
-                        }
+                        int w = (int)img.Width, h = (int)img.Height;
+                        VideoFrameDecoded?.Invoke(peerId, img.Sample, w, h, w * 3);
                     }
-                    catch { }
-                };
-            }
-            catch
-            {
-                // Sem codec de vídeo (FFmpeg indisponível): segue só com áudio.
-                _video.TryRemove(peerId, out _);
-            }
+                }
+                catch { }
+            };
+        }
+        catch
+        {
+            // Sem codec de vídeo disponível: segue (o app cai no fallback JPEG).
+            _video.TryRemove(peerId, out _);
         }
 
         pc.onicecandidate += (cand) =>
@@ -195,17 +204,21 @@ public sealed class WebRtcVoice : IDisposable
             Send(peerId, SignalType.RtcIce, cand.toJSON());
         };
 
-        pc.OnRtpPacketReceived += (rep, mediaType, rtpPkt) =>
+        // Recebimento de áudio (só quando há faixa de áudio negociada).
+        if (!VideoOnly)
         {
-            if (mediaType != SDPMediaTypesEnum.audio || rtpPkt?.Payload is null) return;
-            try
+            pc.OnRtpPacketReceived += (rep, mediaType, rtpPkt) =>
             {
-                short[] pcm8 = _encoder.DecodeAudio(rtpPkt.Payload, _pcmu);
-                short[] pcm16 = PcmResampler.Resample(pcm8, 8000, 16000);
-                _voice.PlayFrom(peerId, ShortsToBytes(pcm16));
-            }
-            catch { }
-        };
+                if (mediaType != SDPMediaTypesEnum.audio || rtpPkt?.Payload is null) return;
+                try
+                {
+                    short[] pcm8 = _encoder.DecodeAudio(rtpPkt.Payload, _pcmu);
+                    short[] pcm16 = PcmResampler.Resample(pcm8, 8000, 16000);
+                    _voice.PlayFrom(peerId, ShortsToBytes(pcm16));
+                }
+                catch { }
+            };
+        }
 
         pc.onconnectionstatechange += (state) =>
         {
@@ -262,31 +275,6 @@ public sealed class WebRtcVoice : IDisposable
             try { enc.Dispose(); } catch { }
         if (_pcs.TryRemove(peerId, out var pc))
             try { pc.close(); } catch { }
-    }
-
-    // ---------------- FFmpeg ----------------
-
-    private static bool EnsureFFmpeg()
-    {
-        if (_ffmpegReady) return true;
-        lock (_ffmpegLock)
-        {
-            if (_ffmpegReady) return true;
-            try
-            {
-                // Procura as DLLs do FFmpeg numa subpasta "ffmpeg" ao lado do app;
-                // se não achar, deixa nulo (usa o PATH do sistema).
-                string dir = System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg");
-                string? libPath = System.IO.Directory.Exists(dir) ? dir : null;
-                FFmpegInit.Initialise(FfmpegLogLevelEnum.AV_LOG_ERROR, libPath);
-                _ffmpegReady = true;
-            }
-            catch
-            {
-                _ffmpegReady = false;
-            }
-            return _ffmpegReady;
-        }
     }
 
     // ---------------- TURN (Cloudflare) ----------------

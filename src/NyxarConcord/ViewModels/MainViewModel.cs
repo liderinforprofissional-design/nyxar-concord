@@ -30,9 +30,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private volatile string? _voiceRoomId;
 
     // Voz por WebRTC (mídia ponto-a-ponto via TURN). false = usa o relay (mais confiável).
-    // Deixado em false por enquanto: o relay transmite para todos na sala nos dois sentidos.
+    // A voz continua no relay por ser simples e robusta; o WebRTC entra só para o VÍDEO.
     private readonly WebRtcVoice _webVoice;
     private bool _useWebRtcVoice = false;
+    // Vídeo da transmissão por WebRTC (VP8 P2P) — 30 fps sem estourar o relay.
+    // Se um par não conectar por WebRTC, ele recebe o JPEG pelo relay (fallback).
+    private bool _useWebRtcVideo = true;
 
     public ObservableCollection<PeerViewModel> Peers { get; } = new();
     public ObservableCollection<Server> Servers { get; } = new();
@@ -91,7 +94,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _relay.PeerLeft += OnRelayLeft;
         _relay.MessageReceived += OnRelayMessage;
 
-        _webVoice = new WebRtcVoice(SelfId, _voice, _relay);
+        _webVoice = new WebRtcVoice(SelfId, _voice, _relay) { VideoOnly = true };
         _webVoice.VideoFrameDecoded += OnWebRtcVideoFrame;
 
         foreach (var server in _serverStore.Load())
@@ -580,7 +583,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _voice.Muted = _isMicMuted;
             _voice.Start(dev);
             UpdateVoiceTargets();
-            if (_useWebRtcVoice && _relay.IsConnected)
+            if ((_useWebRtcVoice || _useWebRtcVideo) && _relay.IsConnected)
                 _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
             _sfx.JoinCall();
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
@@ -1120,15 +1123,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly HashSet<string> _locallyMuted = new();
     // Foto de perfil (caminho local salvo) de cada peer.
     private readonly Dictionary<string, string> _avatars = new();
+    // Volume escolhido por mim para cada peer (1 = 100%).
+    private readonly Dictionary<string, double> _peerVolume = new();
     // Em qual sala cada peer está agora (para listar na hora ao entrar).
     private readonly Dictionary<string, string> _peerRoom = new();
 
-    // Aplica os estados conhecidos (mudo/foto) a um membro recém-criado.
+    // Aplica os estados conhecidos (mudo/foto/volume) a um membro recém-criado.
     private void ApplyMuteState(RoomMember m)
     {
         if (_micState.TryGetValue(m.PeerId, out var muted)) m.IsMuted = muted;
         m.IsMutedByMe = _locallyMuted.Contains(m.PeerId);
         if (_avatars.TryGetValue(m.PeerId, out var avatar)) m.AvatarPath = avatar;
+        m.Volume = _peerVolume.TryGetValue(m.PeerId, out var vol) ? vol : 1.0;
+    }
+
+    /// <summary>Ajusta o volume de uma pessoa (só para mim). 1 = 100%.</summary>
+    public void SetPeerVolume(RoomMember member, double volume)
+    {
+        if (member.IsSelf) return;
+        _peerVolume[member.PeerId] = volume;
+        _voice.SetPeerVolume(member.PeerId, (float)volume);
+        foreach (var m in AllMemberInstances(member.PeerId)) m.Volume = volume;
     }
 
     // Envia meu perfil (nome + foto) para a sala ou para um par específico.
@@ -1603,6 +1618,46 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (System.Threading.Interlocked.CompareExchange(ref _screenSending, 1, 0) == 1) return;
         try
         {
+            // Atualiza o preview local (thread da UI).
+            void PreviewSelf(System.Windows.Media.Imaging.BitmapSource? frame)
+            {
+                Application.Current.Dispatcher.BeginInvoke(() =>
+                {
+                    var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
+                    if (self is not null) self.Frame = frame;
+                    UpdateGalleryTile(SelfId, t => t.Frame = frame);
+                });
+            }
+
+            bool relay = _relay.IsConnected;
+            bool webrtcOn = _useWebRtcVideo && _webVoice.IsActive && relay;
+            var targets = ServerPeers().Select(p => p.Id).ToList();
+            var readySet = webrtcOn
+                ? new HashSet<string>(_webVoice.ReadyPeers())
+                : new HashSet<string>();
+            var readyTargets = targets.Where(readySet.Contains).ToList();
+            var jpegTargets = targets.Where(id => !readySet.Contains(id)).ToList();
+
+            bool didPreview = false;
+
+            // ---- Caminho principal: VÍDEO por WebRTC (VP8 P2P) ----
+            // Manda TODO quadro (VP8 gera keyframe/delta sozinho); o controle de
+            // congestionamento é do próprio WebRTC, então não precisa do teto de banda.
+            if (readyTargets.Count > 0)
+            {
+                byte[]? bgr = _capture.CaptureBgr(src, _shareMaxHeight, out int vw, out int vh);
+                if (bgr is not null)
+                {
+                    _webVoice.SendVideoFrame(bgr, vw, vh);
+                    PreviewSelf(BgrToBitmap(bgr, vw, vh, vw * 3));
+                    didPreview = true;
+                }
+            }
+
+            // ---- Fallback JPEG: pares sem WebRTC, sessão local (P2P), ou preview quando sozinho ----
+            bool needJpeg = jpegTargets.Count > 0 || !relay || !didPreview;
+            if (!needJpeg) { _screenSending = 0; return; }
+
             byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 38);
             if (jpeg is null) { _screenSending = 0; return; }
 
@@ -1612,7 +1667,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
             if (!changed && !keyframe) { _screenSending = 0; return; }
 
-            // Teto de banda: se já mandei muito neste segundo, pula o quadro.
+            // Teto de banda (só o JPEG usa; o WebRTC se auto-regula).
             var now = DateTime.UtcNow;
             if ((now - _secStart).TotalSeconds >= 1) { _secStart = now; _bytesThisSec = 0; }
             if (_bytesThisSec + jpeg.Length > ScreenMaxBytesPerSec) { _screenSending = 0; return; }
@@ -1621,19 +1676,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _lastFrameHash = hash;
             _lastFrameSentAt = DateTime.UtcNow;
 
-            // Preview local (frozen -> pode cruzar para a UI).
-            var selfFrame = DecodeJpeg(jpeg);
-            Application.Current.Dispatcher.BeginInvoke(() =>
-            {
-                var self = Streams.FirstOrDefault(x => x.SharerId == SelfId);
-                if (self is not null) self.Frame = selfFrame;
-                UpdateGalleryTile(SelfId, t => t.Frame = selfFrame);
-            });
+            if (!didPreview) PreviewSelf(DecodeJpeg(jpeg));
 
             string b64 = Convert.ToBase64String(jpeg);
-            if (_relay.IsConnected)
-                _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 }, lowPriority: true)
-                      .ContinueWith(_ => _screenSending = 0);
+            if (relay)
+            {
+                if (readyTargets.Count == 0)
+                {
+                    // Ninguém no WebRTC: caminho de hoje (broadcast + prioridade baixa + backpressure).
+                    _relay.SendToRoomAsync(new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 }, lowPriority: true)
+                          .ContinueWith(_ => _screenSending = 0);
+                }
+                else
+                {
+                    // Misto (transição): manda o JPEG só para quem ainda não conectou por WebRTC.
+                    foreach (var id in jpegTargets)
+                        _ = _relay.SendToPeerAsync(id, new ChatMessage { Signal = SignalType.ScreenFrame, RoomId = roomId, Text = b64 });
+                    _screenSending = 0;
+                }
+            }
             else
             {
                 foreach (var p in ServerPeers())
@@ -1774,7 +1835,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _currentServer.Members.Add(nm);
                 OnPropertyChanged(nameof(ServerMembers));
                 if (_currentRoom is not null) UpdateVoiceTargets();
-                if (_currentRoom?.IsAudio == true && _useWebRtcVoice)
+                if (_currentRoom?.IsAudio == true && (_useWebRtcVoice || _useWebRtcVideo))
                     _ = _webVoice.PeerJoinedAsync(id);
             }
 

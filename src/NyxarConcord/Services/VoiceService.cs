@@ -21,6 +21,9 @@ public sealed class VoiceService : IDisposable
     private readonly NoiseSuppressor _rnnoise = new();
     private readonly object _lock = new();
     private readonly Dictionary<string, BufferedWaveProvider> _inputs = new();
+    // Controle de volume por fluxo (voz e áudio de tela) e por pessoa.
+    private readonly Dictionary<string, NAudio.Wave.SampleProviders.VolumeSampleProvider> _vol = new();
+    private readonly Dictionary<string, float> _peerVol = new();
     // Pessoas que eu silenciei só para mim (não reproduz o áudio delas).
     private readonly HashSet<string> _mutedPeers = new();
 
@@ -94,6 +97,25 @@ public sealed class VoiceService : IDisposable
             foreach (var id in stopped) _speaking[id] = false;
         }
         foreach (var id in stopped) SpeakingChanged?.Invoke(id, false);
+    }
+
+    /// <summary>
+    /// True se algum participante REMOTO (não eu) falou há pouco. Usado para "abaixar"
+    /// o áudio do PC transmitido nesse instante — assim a voz dos outros, que sai pelas
+    /// minhas caixas e é capturada pelo loopback, não volta pra eles como eco.
+    /// </summary>
+    private bool RemoteSpeaking()
+    {
+        var now = DateTime.UtcNow;
+        lock (_spkLock)
+        {
+            foreach (var kv in _lastVoiceAt)
+            {
+                if (kv.Key == SelfId) continue;
+                if ((now - kv.Value).TotalMilliseconds <= SpeakHoldMs) return true;
+            }
+        }
+        return false;
     }
 
     public void Start(int inputDeviceNumber = -1)
@@ -281,10 +303,32 @@ public sealed class VoiceService : IDisposable
                     BufferDuration = TimeSpan.FromSeconds(3)
                 };
                 _inputs[key] = buf;
-                _mixer.AddMixerInput(buf.ToSampleProvider());
+                var vsp = new NAudio.Wave.SampleProviders.VolumeSampleProvider(buf.ToSampleProvider())
+                {
+                    Volume = _peerVol.TryGetValue(peerId, out var v) ? v : 1f
+                };
+                _vol[key] = vsp;
+                _mixer.AddMixerInput(vsp);
             }
             buf.AddSamples(pcm, 0, pcm.Length);
         }
+    }
+
+    /// <summary>Define o volume de uma pessoa (0 = mudo, 1 = 100%, 2 = 200%). Vale para voz e tela.</summary>
+    public void SetPeerVolume(string peerId, float volume)
+    {
+        volume = Math.Clamp(volume, 0f, 2f);
+        lock (_lock)
+        {
+            _peerVol[peerId] = volume;
+            if (_vol.TryGetValue(peerId, out var a)) a.Volume = volume;
+            if (_vol.TryGetValue(peerId + "#scr", out var b)) b.Volume = volume;
+        }
+    }
+
+    public float GetPeerVolume(string peerId)
+    {
+        lock (_lock) return _peerVol.TryGetValue(peerId, out var v) ? v : 1f;
     }
 
     public void Stop()
@@ -303,6 +347,7 @@ public sealed class VoiceService : IDisposable
         lock (_lock)
         {
             _inputs.Clear();
+            _vol.Clear();
             _mixer = null;
         }
     }
@@ -311,6 +356,10 @@ public sealed class VoiceService : IDisposable
     //  Áudio do computador (loopback) — para a transmissão de tela
     // ============================================================
     private WasapiLoopbackCapture? _loopback;
+    private ProcessLoopbackCapture? _procLoop;
+    // Verdadeiro quando a exclusão nativa do próprio app está ativa: aí NÃO precisa
+    // do ducking (não abaixa o áudio do jogo), porque o eco já é eliminado na origem.
+    private bool _excludeActive;
     private BufferedWaveProvider? _loopBuf;
     private IWaveProvider? _loop16;        // saída já em 16 kHz mono 16-bit
 
@@ -319,12 +368,65 @@ public sealed class VoiceService : IDisposable
     private System.Timers.Timer? _loopTimer;
     private const int DesktopFrameBytes = 1280; // 40 ms @ 16 kHz mono 16-bit
 
-    /// <summary>Captura o áudio que sai do computador (vídeos/jogo) e envia junto.</summary>
+    /// <summary>Captura o áudio que sai do computador (vídeos/jogo) e envia junto.
+    /// Tenta a captura nativa que EXCLUI o próprio Nyxar (mata o eco na origem);
+    /// se não der, cai no loopback comum + ducking (abaixa o áudio quando alguém fala).</summary>
     public void StartDesktopAudio()
     {
         StopDesktopAudio();
+        if (TryStartExcludeCapture()) return; // caminho ideal (sem eco, sem abaixar o jogo)
+        StartLoopbackFallback();              // fallback seguro
+    }
+
+    /// <summary>Captura nativa (WASAPI process-loopback) excluindo o processo do app.</summary>
+    private bool TryStartExcludeCapture()
+    {
+        ProcessLoopbackCapture? cap = null;
         try
         {
+            cap = new ProcessLoopbackCapture();
+            _loopBuf = new BufferedWaveProvider(cap.WaveFormat)
+            {
+                DiscardOnBufferOverflow = true,
+                BufferDuration = TimeSpan.FromSeconds(2)
+            };
+            cap.DataAvailable += (b, n) => _loopBuf?.AddSamples(b, 0, n);
+
+            ISampleProvider sp = _loopBuf.ToSampleProvider();
+            if (sp.WaveFormat.Channels != 1) sp = new DownmixToMonoSampleProvider(sp);
+            sp = new WdlResamplingSampleProvider(sp, 16000);
+            _loop16 = new SampleToWaveProvider16(sp);
+
+            cap.Start();
+            // Só confirma se a ativação nativa realmente vingou.
+            if (!cap.WaitStarted(2000) || cap.Failed)
+            {
+                cap.Dispose();
+                _loopBuf = null; _loop16 = null;
+                return false;
+            }
+
+            _procLoop = cap;
+            _excludeActive = true;
+            _loopTimer = new System.Timers.Timer(40) { AutoReset = true };
+            _loopTimer.Elapsed += (_, _) => PumpDesktopAudio();
+            _loopTimer.Start();
+            return true;
+        }
+        catch
+        {
+            try { cap?.Dispose(); } catch { }
+            _loopBuf = null; _loop16 = null; _excludeActive = false;
+            return false;
+        }
+    }
+
+    /// <summary>Fallback: loopback comum do sistema (inclui tudo) + ducking anti-eco.</summary>
+    private void StartLoopbackFallback()
+    {
+        try
+        {
+            _excludeActive = false;
             _loopback = new WasapiLoopbackCapture();
             _loopBuf = new BufferedWaveProvider(_loopback.WaveFormat)
             {
@@ -356,6 +458,11 @@ public sealed class VoiceService : IDisposable
         {
             // Envia no MÁXIMO 2 quadros por tique (evita "rajada" que atropela a voz
             // na fila do relay). Se acumulou muito, descarta o excedente.
+            // Anti-eco (só no fallback): enquanto um participante remoto fala, abaixa bem
+            // o áudio do PC. A voz dos outros sai pelas minhas caixas e o loopback comum a
+            // captura; sem isso ela voltaria como eco ("se ouvir no áudio do outro").
+            // Com a captura nativa que EXCLUI o app, o eco já não existe — sem ducking.
+            bool duck = !_excludeActive && RemoteSpeaking();
             int sent = 0;
             while (buf.BufferedBytes > 0 && sent < 2)
             {
@@ -364,6 +471,7 @@ public sealed class VoiceService : IDisposable
                 if (got <= 0) break;
                 if (DesktopAudioMuted) { sent++; continue; }
                 if (got < frame.Length) Array.Clear(frame, got, frame.Length - got);
+                if (duck) ApplyGain(frame, 0.12); // ~ -18 dB durante a fala remota
                 DesktopFrameCaptured?.Invoke(frame); // fluxo SEPARADO da voz
                 sent++;
             }
@@ -377,11 +485,14 @@ public sealed class VoiceService : IDisposable
     {
         try { _loopTimer?.Stop(); _loopTimer?.Dispose(); } catch { }
         _loopTimer = null;
+        try { _procLoop?.Dispose(); } catch { }
+        _procLoop = null;
         try { _loopback?.StopRecording(); } catch { }
         try { _loopback?.Dispose(); } catch { }
         _loopback = null;
         _loop16 = null;
         _loopBuf = null;
+        _excludeActive = false;
     }
 
     /// <summary>Mistura todos os canais num só (média) — para qualquer nº de canais.</summary>

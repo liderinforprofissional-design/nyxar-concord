@@ -258,6 +258,15 @@
                                                             <Grid.ContextMenu>
                                                                 <ContextMenu>
                                                                     <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                                                    <MenuItem StaysOpenOnClick="True">
+                                                                        <MenuItem.Header>
+                                                                            <StackPanel Width="170" Margin="2">
+                                                                                <TextBlock Text="Volume" FontSize="11" Foreground="{StaticResource Text.Muted}" />
+                                                                                <Slider Minimum="0" Maximum="2" Width="160" TickFrequency="0.5"
+                                                                                        Value="{Binding Volume, Mode=TwoWay}" ValueChanged="Volume_Changed" />
+                                                                            </StackPanel>
+                                                                        </MenuItem.Header>
+                                                                    </MenuItem>
                                                                 </ContextMenu>
                                                             </Grid.ContextMenu>
                                                             <Grid.ColumnDefinitions>
@@ -974,6 +983,15 @@
                                     <Grid.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                            <MenuItem StaysOpenOnClick="True">
+                                                <MenuItem.Header>
+                                                    <StackPanel Width="170" Margin="2">
+                                                        <TextBlock Text="Volume" FontSize="11" Foreground="{StaticResource Text.Muted}" />
+                                                        <Slider Minimum="0" Maximum="2" Width="160" TickFrequency="0.5"
+                                                                Value="{Binding Volume, Mode=TwoWay}" ValueChanged="Volume_Changed" />
+                                                    </StackPanel>
+                                                </MenuItem.Header>
+                                            </MenuItem>
                                             <Separator />
                                             <MenuItem Header="Expulsar do canal" Click="Kick_Click" />
                                             <MenuItem Header="Banir do canal" Click="Ban_Click" />

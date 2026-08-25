@@ -342,6 +342,13 @@ public partial class MainWindow : Window
         if (sender is MenuItem { DataContext: RoomMember member }) _vm.TogglePeerMute(member);
     }
 
+    // Barra de volume por usuário (menu de contexto).
+    private void Volume_Changed(object sender, System.Windows.RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (sender is System.Windows.Controls.Slider { DataContext: RoomMember member })
+            _vm.SetPeerVolume(member, e.NewValue);
+    }
+
     // --- Foto do servidor ---
     private void ChangeServerPhoto_Click(object sender, RoutedEventArgs e)
     {
