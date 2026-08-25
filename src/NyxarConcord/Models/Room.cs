@@ -99,6 +99,17 @@ public sealed class RoomMember : INotifyPropertyChanged
     /// <summary>Texto do menu de contexto para silenciar/reativar esta pessoa.</summary>
     public string MuteMenuLabel => _isMutedByMe ? "Reativar som desta pessoa" : "Silenciar só para mim";
 
+    /// <summary>Eu parei de assistir a transmissão desta pessoa (só para mim).</summary>
+    private bool _isWatchBlockedByMe;
+    public bool IsWatchBlockedByMe
+    {
+        get => _isWatchBlockedByMe;
+        set { if (Set(ref _isWatchBlockedByMe, value)) Raise(nameof(WatchMenuLabel)); }
+    }
+
+    /// <summary>Texto do menu de contexto para assistir/parar de assistir a tela.</summary>
+    public string WatchMenuLabel => _isWatchBlockedByMe ? "Assistir à tela" : "Parar de assistir";
+
     private bool _isSharingScreen;
     public bool IsSharingScreen
     {

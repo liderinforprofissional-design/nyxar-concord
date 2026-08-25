@@ -32,9 +32,11 @@ SetupIconFile=..\src\NyxarConcord\Assets\nyxar.ico
 WizardStyle=modern
 ; Instalação por usuário — não pede permissão de administrador (UAC).
 PrivilegesRequired=lowest
-; Atualização no lugar: fecha o app aberto, atualiza e reabre (usado no auto-update).
+; Atualização no lugar: fecha o app aberto e atualiza. O reabrir automático é feito
+; pela entrada [Run] com "Check: WizardSilent" abaixo (mais determinístico que o
+; Restart Manager, que não pegava o app porque ele se fecha antes de instalar).
 CloseApplications=yes
-RestartApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -52,4 +54,7 @@ Name: "{group}\Desinstalar Nyxar Concord"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Nyxar Concord"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Instalação interativa (1ª vez): caixa "abrir agora" na tela final.
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir o Nyxar Concord agora"; Flags: nowait postinstall skipifsilent
+; Atualização silenciosa (auto-update): reabre o app sozinho ao terminar.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent

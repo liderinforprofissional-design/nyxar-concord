@@ -1353,6 +1353,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void Restore() => MaximizedStream = null;
 
+    // --- Parar de assistir UMA transmissão (só para mim; a pessoa continua transmitindo) ---
+    // Diferente do "encerrar" do dono, que para para todos.
+    private readonly HashSet<string> _watchBlocked = new();
+
+    /// <summary>True se eu escolhi não assistir a transmissão desta pessoa.</summary>
+    public bool IsWatchBlocked(string peerId) => _watchBlocked.Contains(peerId);
+
+    /// <summary>Espectador para de assistir a tela desta pessoa (fecha só para ele).</summary>
+    public void StopWatchingStream(string peerId) => SetWatchBlocked(peerId, true);
+
+    /// <summary>Alterna assistir/parar de assistir (usado no menu do membro).</summary>
+    public void ToggleWatch(RoomMember? m)
+    {
+        if (m is null || m.IsSelf) return;
+        SetWatchBlocked(m.PeerId, !_watchBlocked.Contains(m.PeerId));
+    }
+
+    private void SetWatchBlocked(string peerId, bool blocked)
+    {
+        if (string.IsNullOrEmpty(peerId) || peerId == SelfId) return;
+        if (blocked) _watchBlocked.Add(peerId); else _watchBlocked.Remove(peerId);
+
+        // Reflete o estado no menu de contexto do membro (rótulo assistir/parar).
+        var sm = _currentServer?.Members.FirstOrDefault(x => x.PeerId == peerId);
+        if (sm is not null) sm.IsWatchBlockedByMe = blocked;
+        var rm = _currentRoom?.Members.FirstOrDefault(x => x.PeerId == peerId);
+        if (rm is not null) rm.IsWatchBlockedByMe = blocked;
+
+        if (blocked)
+        {
+            RemoveTile(peerId);                              // tira a mini-tela do palco
+            UpdateGalleryTile(peerId, t => t.Frame = null); // some o quadro no card da galeria
+            if (_maxTile?.PeerId == peerId) MaximizedGalleryTile = null;
+        }
+        // Ao voltar a assistir, o próximo quadro recebido recria a tela sozinho.
+    }
+
     // ============================================================
     //  Visualização em GALERIA (cards dos participantes)
     // ============================================================
@@ -1518,6 +1555,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             if (peerId == SelfId) return;
+            if (_watchBlocked.Contains(peerId)) return; // parei de assistir esta pessoa
             var img = BgrToBitmap(bgr, w, h, stride);
             if (img is null) return;
             string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
@@ -1965,6 +2003,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 case SignalType.MemberBanned: HandleMemberBanned(msg); break;
                 case SignalType.ScreenShareStart:
                     EnsurePeerInCurrentRoom(peer, msg.RoomId);
+                    SetWatchBlocked(peer.Id, false); // transmissão nova: volta a mostrar
                     SetMemberSharing(peer.Id, true);
                     GetOrCreateTile(peer.Id, peer.DisplayName, false);
                     RaiseStageState();
@@ -1974,6 +2013,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     break;
                 case SignalType.ScreenShareStop:
                     SetMemberSharing(peer.Id, false);
+                    SetWatchBlocked(peer.Id, false); // limpa meu bloqueio local
                     RemoveTile(peer.Id);
                     _sfx.ScreenShareStop();
                     break;
@@ -1985,6 +2025,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                             byte[] jpeg = Convert.FromBase64String(msg.Text);
                             EnsurePeerInCurrentRoom(peer, msg.RoomId);
                             SetMemberSharing(peer.Id, true);
+                            if (_watchBlocked.Contains(peer.Id)) break; // parei de assistir
                             var frame = DecodeJpeg(jpeg);
                             var tile = GetOrCreateTile(peer.Id, peer.DisplayName, false);
                             if (tile is not null) tile.Frame = frame;

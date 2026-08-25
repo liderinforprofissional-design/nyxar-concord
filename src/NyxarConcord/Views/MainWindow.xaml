@@ -258,6 +258,8 @@
                                                             <Grid.ContextMenu>
                                                                 <ContextMenu>
                                                                     <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                                                    <MenuItem Header="{Binding WatchMenuLabel}" Click="ToggleWatch_Click"
+                                                                              Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}" />
                                                                     <MenuItem StaysOpenOnClick="True">
                                                                         <MenuItem.Header>
                                                                             <StackPanel Width="170" Margin="2">
@@ -738,6 +740,26 @@
                                                           Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
                                             </Button>
+                                            <!-- Espectador: parar de assistir esta transmissão (só para mim) -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,8,50,0"
+                                                    Cursor="Hand" Click="StopWatch_Click" Tag="{Binding}"
+                                                    ToolTip="Parar de assistir (só para você)"
+                                                    Visibility="{Binding IsSelf, Converter={StaticResource InverseBoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="sw" Width="34" Height="34" CornerRadius="10"
+                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="sw" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="14" FontWeight="Bold" />
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -777,6 +799,26 @@
                                     <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}" Data="{StaticResource Icon.HeadsetOff}"
                                           Visibility="{Binding MaximizedStream.IsMutedByMe, Converter={StaticResource BoolToVis}}" />
                                 </Grid>
+                            </Button>
+                            <!-- Espectador: parar de assistir a transmissão maximizada (só para mim) -->
+                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,14,62,0"
+                                    Cursor="Hand" Click="StopWatch_Click" Tag="{Binding MaximizedStream}"
+                                    ToolTip="Parar de assistir (só para você)"
+                                    Visibility="{Binding MaximizedStream.IsSelf, Converter={StaticResource InverseBoolToVis}}">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="msw" Width="40" Height="40" CornerRadius="11"
+                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="msw" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="16" FontWeight="Bold" />
                             </Button>
                         </Grid>
 
@@ -932,6 +974,26 @@
                                                           Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
                                             </Button>
+                                            <!-- Espectador: parar de assistir esta transmissão (só para mim) -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,58,0"
+                                                    Cursor="Hand" Click="StopWatch_Click" Tag="{Binding}"
+                                                    ToolTip="Parar de assistir (só para você)"
+                                                    Visibility="{Binding ShowViewerMute, Converter={StaticResource BoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="gsw" Width="40" Height="40" CornerRadius="11"
+                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="gsw" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="16" FontWeight="Bold" />
+                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -983,6 +1045,8 @@
                                     <Grid.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
+                                            <MenuItem Header="{Binding WatchMenuLabel}" Click="ToggleWatch_Click"
+                                                      Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}" />
                                             <MenuItem StaysOpenOnClick="True">
                                                 <MenuItem.Header>
                                                     <StackPanel Width="170" Margin="2">

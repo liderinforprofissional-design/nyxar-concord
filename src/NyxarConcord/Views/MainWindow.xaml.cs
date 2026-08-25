@@ -315,6 +315,22 @@ public partial class MainWindow : Window
     private void Watch_Click(object sender, RoutedEventArgs e) => _vm.WatchStream();
     private void BackToChat_Click(object sender, RoutedEventArgs e) => _vm.StopWatching();
 
+    // Espectador para de assistir UMA transmissão (botão ✕ no tile / card).
+    private void StopWatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            if (fe.Tag is StreamTile st) _vm.StopWatchingStream(st.SharerId);
+            else if (fe.Tag is GalleryTile gt) _vm.StopWatchingStream(gt.PeerId);
+        }
+    }
+
+    // Alterna assistir/parar de assistir a tela (menu de contexto do membro).
+    private void ToggleWatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem { DataContext: RoomMember member }) _vm.ToggleWatch(member);
+    }
+
     private void Tile_Click(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement { Tag: StreamTile tile }) _vm.ToggleMaximize(tile);

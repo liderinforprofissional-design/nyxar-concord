@@ -21,6 +21,9 @@ namespace NyxarConcord.Services;
 /// </summary>
 public sealed class WebRtcVoice : IDisposable
 {
+    // Bitrate alvo do vídeo da tela (VP8), em kbps. ~4 Mbps p/ 720p nítido.
+    private const uint VideoTargetKbps = 4000;
+
     private readonly string _selfId;
     private readonly VoiceService _voice;
     private readonly WorkerRelay _relay;
@@ -174,6 +177,9 @@ public sealed class WebRtcVoice : IDisposable
         try
         {
             var enc = new VpxVideoEncoder();
+            // Bitrate alvo alto: sem isto o VP8 usa um padrão baixo e o 720p fica borrado.
+            // ~4 Mbps deixa texto e detalhes da tela nítidos.
+            try { enc.TargetKbps = VideoTargetKbps; } catch { }
             _video[peerId] = enc;
 
             var videoTrack = new MediaStreamTrack(new List<VideoFormat> { _vp8 }, MediaStreamStatusEnum.SendRecv);
