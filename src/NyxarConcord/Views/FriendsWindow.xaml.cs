@@ -42,5 +42,15 @@ public partial class FriendsWindow : Window
         }
     }
 
+    // Abre uma conversa direta com a pessoa (funciona mesmo offline).
+    private void Message_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: FriendViewModel f })
+        {
+            _vm.OpenDirectMessageWith(f.Id, f.Name, f.Handle);
+            Close();
+        }
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }

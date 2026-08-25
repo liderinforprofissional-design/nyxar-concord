@@ -193,8 +193,10 @@ public class ChatMessage
         return Array.IndexOf(exts, e) >= 0;
     }
 
-    [JsonIgnore] public bool IsImageFile => IsFile && HasExt(ImageExts);
-    [JsonIgnore] public bool IsVideoFile => IsFile && HasExt(VideoExts);
+    // Só mostra preview de imagem/vídeo quando temos os bytes (mensagem ao vivo).
+    // No histórico (sem bytes) cai no card comum.
+    [JsonIgnore] public bool IsImageFile => IsFile && FileData is not null && HasExt(ImageExts);
+    [JsonIgnore] public bool IsVideoFile => IsFile && FileData is not null && HasExt(VideoExts);
     /// <summary>Arquivo comum (nem imagem nem vídeo): mostra o card com botão "Salvar".</summary>
     [JsonIgnore] public bool IsOtherFile => IsFile && !IsImageFile && !IsVideoFile;
 

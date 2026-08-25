@@ -44,6 +44,32 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // Busca de metadados de links para o card de pré-visualização no chat.
     private readonly LinkPreviewService _linkPreview = new();
 
+    // Histórico das conversas (DMs e anotações) salvo em disco.
+    private readonly MessageStore _history = new();
+
+    private static StoredMessage ToStored(ChatMessage m) => new()
+    {
+        SenderId = m.SenderId, SenderName = m.SenderName, Text = m.Text,
+        Ts = m.Timestamp.Ticks, Mine = m.IsMine,
+        File = m.IsFile, FileName = m.FileName, FileSize = m.FileSize
+    };
+
+    private static ChatMessage FromStored(StoredMessage s)
+    {
+        var m = new ChatMessage
+        {
+            Kind = MessageKind.Text, SenderId = s.SenderId, SenderName = s.SenderName,
+            Text = s.Text, Timestamp = new DateTime(s.Ts, DateTimeKind.Utc), IsMine = s.Mine
+        };
+        if (s.File) { m.IsFile = true; m.FileName = s.FileName; m.FileSize = s.FileSize; }
+        return m;
+    }
+
+    private void LoadDmHistory(string peerId)
+    {
+        foreach (var s in _history.Load("dm-" + peerId)) Messages.Add(FromStored(s));
+    }
+
     /// <summary>Pedido de notificação na bandeja (título, texto). A View decide se mostra.</summary>
     public event Action<string, string>? NotificationRequested;
 
@@ -84,6 +110,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (identity.Deactivated) { identity.Deactivated = false; identityService.Save(identity); }
 
         _voice.NoiseSuppression = identity.Audio.NoiseSuppression;
+        _voice.InputVolume = (float)identity.Audio.InputVolume;
+        _voice.OutputVolume = (float)identity.Audio.OutputVolume;
         _voice.SelfId = identity.PeerId;
         _voice.FrameCaptured += OnVoiceCaptured;
         _voice.DesktopFrameCaptured += OnDesktopAudioCaptured;
@@ -447,6 +475,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     CurrentServer = null;
                 }
                 Messages.Clear();
+                if (value is not null) LoadDmHistory(value.Peer.Id); // carrega o histórico salvo
                 RaiseConversationChanged();
             }
         }
@@ -478,10 +507,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CurrentRoom = null;
         CurrentServer = null;
         Messages.Clear();
-        if (_selfNotesStore.Count == 0)
+        var hist = _history.Load("self");
+        if (hist.Count == 0)
             Messages.Add(SystemMessage("📝 Anotações pessoais — só você vê. Guarde lembretes, links e mensagens aqui."));
         else
-            foreach (var m in _selfNotesStore) Messages.Add(m);
+            foreach (var s in hist) Messages.Add(FromStored(s));
         RaiseConversationChanged();
     }
 
@@ -683,6 +713,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanUseGallery));
         _voiceTargets = Array.Empty<Peer>();
         _voiceRoomId = null;
+        RefreshServerVoiceBadges(); // some o selo do servidor que acabei de deixar
     }
 
     public void LeaveCall()
@@ -714,11 +745,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AttachLinkPreview(mine);
         Messages.Add(mine);
         _sfx.MessageSent();
+        if (_selectedPeer is not null) _history.Append("dm-" + _selectedPeer.Peer.Id, ToStored(mine));
         Diag.Log("MSG-TX", $"enviando ({text.Length} chars) selfNotes={_isSelfNotes} peer={_selectedPeer?.Peer.Id ?? "(nenhum)"} room={_currentRoom?.Id ?? "(nenhuma)"}");
 
         if (_isSelfNotes)
         {
-            _selfNotesStore.Add(mine); // fica só no seu app
+            _selfNotesStore.Add(mine);
+            _history.Append("self", ToStored(mine)); // persiste as anotações
             return;
         }
 
@@ -755,6 +788,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, Text = text, IsMine = true
         };
         AttachLinkPreview(mine);
+        _history.Append("dm-" + peer.Peer.Id, ToStored(mine)); // guarda no histórico
         // Se essa DM já está aberta, mostra a mensagem na hora.
         if (_selectedPeer?.Peer.Id == peer.Peer.Id) Messages.Add(mine);
         _sfx.MessageSent();
@@ -1251,9 +1285,73 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    // --- Volume de entrada (microfone) e saída (alto-falante) — controles rápidos ---
+    public double InputVolume
+    {
+        get => Identity.Audio.InputVolume;
+        set
+        {
+            double v = Math.Clamp(value, 0, 3);
+            if (Math.Abs(Identity.Audio.InputVolume - v) < 0.001) return;
+            Identity.Audio.InputVolume = v;
+            _voice.InputVolume = (float)v;
+            IdentityService.Save(Identity);
+            OnPropertyChanged();
+        }
+    }
+
+    public double OutputVolume
+    {
+        get => Identity.Audio.OutputVolume;
+        set
+        {
+            double v = Math.Clamp(value, 0, 1);
+            if (Math.Abs(Identity.Audio.OutputVolume - v) < 0.001) return;
+            Identity.Audio.OutputVolume = v;
+            _voice.OutputVolume = (float)v;
+            IdentityService.Save(Identity);
+            OnPropertyChanged();
+        }
+    }
+
+    // --- Ensurdecer (não ouvir os outros da sala) ---
+    private bool _isDeafened;
+    public bool IsDeafened
+    {
+        get => _isDeafened;
+        private set { if (SetProperty(ref _isDeafened, value)) OnPropertyChanged(nameof(DeafenToolTip)); }
+    }
+
+    public string DeafenToolTip => _isDeafened ? "Ativar áudio (ouvir os outros)" : "Ensurdecer (não ouvir os outros)";
+
+    public void ToggleDeafen()
+    {
+        IsDeafened = !_isDeafened;
+        _voice.Deafened = _isDeafened;
+        if (_isDeafened) _sfx.MuteOn(); else _sfx.MuteOff();
+    }
+
+    /// <summary>Abre uma conversa direta com uma pessoa mesmo que esteja offline.</summary>
+    public void OpenDirectMessageWith(string peerId, string name = "", string handle = "")
+    {
+        if (string.IsNullOrEmpty(peerId) || peerId == SelfId) return;
+        var pvm = Peers.FirstOrDefault(p => p.Peer.Id == peerId);
+        if (pvm is null)
+        {
+            var peer = GetRelayPeer(peerId, name, handle);
+            pvm = new PeerViewModel(peer);
+            Peers.Add(pvm);
+        }
+        SelectedPeer = pvm;
+    }
+
     public void ApplyAudioSettings()
     {
         _voice.NoiseSuppression = Identity.Audio.NoiseSuppression;
+        _voice.InputVolume = (float)Identity.Audio.InputVolume;   // ganho do microfone
+        _voice.OutputVolume = (float)Identity.Audio.OutputVolume;
+        OnPropertyChanged(nameof(InputVolume));                    // atualiza a setinha da call
+        OnPropertyChanged(nameof(OutputVolume));
         _sfx.Enabled = Identity.SoundsEnabled;
         OnPropertyChanged(nameof(SelfName));
         OnPropertyChanged(nameof(SelfAvatarPath));
@@ -1826,17 +1924,49 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public string CreateServerCode()
     {
         if (_currentServer is null) return "";
-        var dto = new ServerCode
+        // Formato binário compacto (ids = 16 bytes em vez de 32 hex + sem JSON).
+        using var ms = new System.IO.MemoryStream();
+        using var w = new System.IO.BinaryWriter(ms, System.Text.Encoding.UTF8);
+        w.Write((byte)1); // versão
+        w.Write(GuidBytes(_currentServer.Id));
+        CodeWriteStr(w, _currentServer.Name);
+        var chans = _currentServer.Channels.Take(255).ToList();
+        w.Write((byte)chans.Count);
+        foreach (var c in chans)
         {
-            Id = _currentServer.Id,
-            Name = _currentServer.Name,
-            Channels = _currentServer.Channels.Select(c => new ChannelCode
-            {
-                Id = c.Id, Name = c.Name, Emoji = c.Emoji, Kind = c.Kind
-            }).ToList()
-        };
-        byte[] json = JsonSerializer.SerializeToUtf8Bytes(dto);
-        return "NYX-SRV-" + Convert.ToBase64String(json);
+            w.Write(GuidBytes(c.Id));
+            w.Write((byte)(c.Kind == RoomKind.Audio ? 1 : 0));
+            CodeWriteStr(w, c.Name);
+            CodeWriteStr(w, c.Emoji);
+        }
+        return "NYX-" + Base64Url(ms.ToArray());
+    }
+
+    // --- Utilidades do código de convite (compacto) ---
+    private static byte[] GuidBytes(string id)
+        => Guid.TryParseExact(id, "N", out var g) ? g.ToByteArray() : Guid.Empty.ToByteArray();
+    private static string BytesGuid(byte[] b) => new Guid(b).ToString("N");
+
+    private static void CodeWriteStr(System.IO.BinaryWriter w, string? s)
+    {
+        var b = System.Text.Encoding.UTF8.GetBytes(s ?? "");
+        if (b.Length > 65535) b = b[..65535];
+        w.Write((ushort)b.Length);
+        w.Write(b);
+    }
+    private static string CodeReadStr(System.IO.BinaryReader r)
+    {
+        int n = r.ReadUInt16();
+        return System.Text.Encoding.UTF8.GetString(r.ReadBytes(n));
+    }
+
+    private static string Base64Url(byte[] b)
+        => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    private static byte[] FromBase64Url(string s)
+    {
+        s = s.Replace('-', '+').Replace('_', '/');
+        switch (s.Length % 4) { case 2: s += "=="; break; case 3: s += "="; break; }
+        return Convert.FromBase64String(s);
     }
 
     /// <summary>Entra num servidor a partir de um código (cria localmente + conecta ao relay).</summary>
@@ -1846,16 +1976,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             code = code.Trim();
             if (code.StartsWith("NYX-SRV-", StringComparison.OrdinalIgnoreCase))
-                code = code["NYX-SRV-".Length..];
-            var dto = JsonSerializer.Deserialize<ServerCode>(Convert.FromBase64String(code));
-            if (dto is null || string.IsNullOrWhiteSpace(dto.Id)) return false;
+                code = code["NYX-SRV-".Length..]; // compatibilidade com códigos antigos (JSON)
+            else if (code.StartsWith("NYX-", StringComparison.OrdinalIgnoreCase))
+                code = code["NYX-".Length..];
 
-            var server = Servers.FirstOrDefault(s => s.Id == dto.Id);
+            string id; string name; var channels = new List<Room>();
+            byte[] data = FromBase64Url(code);
+
+            if (data.Length > 0 && data[0] == 1) // formato binário compacto (novo)
+            {
+                using var ms = new System.IO.MemoryStream(data);
+                using var r = new System.IO.BinaryReader(ms, System.Text.Encoding.UTF8);
+                r.ReadByte(); // versão
+                id = BytesGuid(r.ReadBytes(16));
+                name = CodeReadStr(r);
+                int count = r.ReadByte();
+                for (int i = 0; i < count; i++)
+                {
+                    string cid = BytesGuid(r.ReadBytes(16));
+                    var kind = r.ReadByte() == 1 ? RoomKind.Audio : RoomKind.Text;
+                    string cname = CodeReadStr(r);
+                    string emoji = CodeReadStr(r);
+                    channels.Add(new Room { Id = cid, Name = cname, Emoji = emoji, Kind = kind, ServerId = id });
+                }
+            }
+            else // formato antigo (JSON em base64) — ainda aceita
+            {
+                var dto = JsonSerializer.Deserialize<ServerCode>(data);
+                if (dto is null || string.IsNullOrWhiteSpace(dto.Id)) return false;
+                id = dto.Id; name = dto.Name;
+                foreach (var ch in dto.Channels)
+                    channels.Add(new Room { Id = ch.Id, Name = ch.Name, Emoji = ch.Emoji, Kind = ch.Kind, ServerId = dto.Id });
+            }
+
+            if (string.IsNullOrWhiteSpace(id)) return false;
+            var server = Servers.FirstOrDefault(s => s.Id == id);
             if (server is null)
             {
-                server = new Server { Id = dto.Id, Name = dto.Name, OwnerId = "" };
-                foreach (var ch in dto.Channels)
-                    server.Channels.Add(new Room { Id = ch.Id, Name = ch.Name, Emoji = ch.Emoji, Kind = ch.Kind, ServerId = dto.Id });
+                server = new Server { Id = id, Name = name, OwnerId = "" };
+                foreach (var ch in channels) server.Channels.Add(ch);
                 EnsureSelfServerMember(server);
                 Servers.Add(server);
                 SaveServers();
@@ -2007,6 +2166,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             AttachLinkPreview(msg);
             NotificationRequested?.Invoke(peer.DisplayName,
                 string.IsNullOrWhiteSpace(msg.Text) ? "enviou uma mensagem" : msg.Text);
+            // DM (mensagem direcionada a mim): guarda no histórico dessa pessoa.
+            if (msg.To == SelfId) _history.Append("dm-" + peer.Id, ToStored(msg));
             bool viewingPeer = _selectedPeer?.Peer.Id == peer.Id;
             bool viewingServerWithPeer = _currentServer?.Members.Any(m => m.PeerId == peer.Id) == true && _currentRoom is not null;
             if (viewingPeer || viewingServerWithPeer)

@@ -1,8 +1,8 @@
 <Window x:Class="NyxarConcord.Views.CreateRoomDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Criar sala" Height="560" Width="420"
-        Background="{StaticResource Bg.Darkest}"
+        Title="Criar sala" Height="640" Width="420"
+        Background="Transparent"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         WindowStyle="None" AllowsTransparency="True">
     <Border CornerRadius="16" Background="{StaticResource Bg.Dark}" BorderBrush="{StaticResource Border.Soft}"
@@ -23,7 +23,8 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel Grid.Row="1" Margin="26,4,26,0">
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+            <StackPanel Margin="26,4,26,10">
                 <TextBlock Text="ÍCONE DA SALA" FontSize="11" FontWeight="SemiBold"
                            Foreground="{StaticResource Text.Muted}" Margin="0,0,0,6" />
                 <Border Background="{StaticResource Bg.Input}" BorderBrush="{StaticResource Border.Soft}"
@@ -99,6 +100,7 @@
                     </RadioButton>
                 </Grid>
             </StackPanel>
+            </ScrollViewer>
 
             <Border Grid.Row="2" Padding="26,16" CornerRadius="0,0,16,16">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

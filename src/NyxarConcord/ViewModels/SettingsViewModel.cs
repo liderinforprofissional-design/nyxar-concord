@@ -96,6 +96,23 @@ public sealed class SettingsViewModel : ObservableObject
     /// <summary>Nível do microfone (0 a 1) para a barra do medidor.</summary>
     public double MicLevel { get => _micLevel; private set => SetProperty(ref _micLevel, value); }
 
+    /// <summary>Ganho do microfone (1 = 100%, até 3 = 300%). Salvo com as preferências.</summary>
+    public double MicGain
+    {
+        get => _identity.Audio.InputVolume <= 0 ? 1.0 : _identity.Audio.InputVolume;
+        set
+        {
+            double v = Math.Clamp(value, 0, 3);
+            if (Math.Abs(_identity.Audio.InputVolume - v) < 0.001) return;
+            _identity.Audio.InputVolume = v;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(MicGainLabel));
+        }
+    }
+
+    /// <summary>Texto do ganho em porcentagem (ex.: "150%").</summary>
+    public string MicGainLabel => $"{(int)Math.Round(MicGain * 100)}%";
+
     public void ToggleMicTest()
     {
         if (_isTesting) { StopMicTest(); return; }
@@ -118,7 +135,8 @@ public sealed class SettingsViewModel : ObservableObject
     private void OnTestData(object? sender, WaveInEventArgs e)
     {
         double rms = Rms(e.Buffer, e.BytesRecorded);
-        double level = Math.Clamp(rms / 3000.0, 0, 1); // ~fala normal chega perto de 1
+        // O medidor reflete o ganho escolhido, para você calibrar ao vivo.
+        double level = Math.Clamp(rms / 3000.0 * MicGain, 0, 1);
         var app = System.Windows.Application.Current;
         if (app is not null) app.Dispatcher.BeginInvoke(() => MicLevel = level);
         else MicLevel = level;

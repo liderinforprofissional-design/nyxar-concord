@@ -51,6 +51,33 @@ public sealed class VoiceService : IDisposable
     /// <summary>Microfone silenciado (não envia áudio).</summary>
     public bool Muted { get; set; }
 
+    /// <summary>Ganho do microfone (0 = mudo, 1 = 100%, 2 = 200%).</summary>
+    public float InputVolume { get; set; } = 1f;
+
+    /// <summary>Volume geral de saída (0 a 1). Aplicado ao WaveOut.</summary>
+    private float _outputVolume = 1f;
+    public float OutputVolume
+    {
+        get => _outputVolume;
+        set
+        {
+            _outputVolume = Math.Clamp(value, 0f, 1f);
+            try { if (_out is not null && !_deafened) _out.Volume = _outputVolume; } catch { }
+        }
+    }
+
+    /// <summary>Ensurdecer: não ouço ninguém da sala (zera a saída, mas guarda o volume).</summary>
+    private bool _deafened;
+    public bool Deafened
+    {
+        get => _deafened;
+        set
+        {
+            _deafened = value;
+            try { if (_out is not null) _out.Volume = value ? 0f : _outputVolume; } catch { }
+        }
+    }
+
     public bool IsRunning { get; private set; }
 
     /// <summary>Id do próprio usuário (para o indicador de "falando").</summary>
@@ -130,6 +157,7 @@ public sealed class VoiceService : IDisposable
             _mixer = new MixingSampleProvider(mixFormat) { ReadFully = true };
             _out = new WaveOutEvent { DesiredLatency = 120 };
             _out.Init(new SampleToWaveProvider16(_mixer));
+            try { _out.Volume = _outputVolume; } catch { }
             _out.Play();
 
             _mic = new WaveInEvent
@@ -158,6 +186,9 @@ public sealed class VoiceService : IDisposable
 
         var buffer = new byte[e.BytesRecorded];
         Array.Copy(e.Buffer, buffer, e.BytesRecorded);
+
+        // Ganho de entrada (volume do microfone) escolhido pelo usuário.
+        if (Math.Abs(InputVolume - 1f) > 0.01f) ApplyGain(buffer, InputVolume);
 
         // Indicador "falando": energia acima do piso conta como fala.
         if (Rms(buffer) > SpeakRms) MarkVoice(SelfId);

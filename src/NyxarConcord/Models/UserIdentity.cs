@@ -73,4 +73,12 @@ public sealed class AudioPreferences
 
     [JsonPropertyName("noiseSuppression")]
     public bool NoiseSuppression { get; set; } = true;
+
+    /// <summary>Ganho do microfone (0 a 2; 1 = 100%).</summary>
+    [JsonPropertyName("inputVolume")]
+    public double InputVolume { get; set; } = 1.0;
+
+    /// <summary>Volume geral de saída (0 a 1; 1 = 100%).</summary>
+    [JsonPropertyName("outputVolume")]
+    public double OutputVolume { get; set; } = 1.0;
 }

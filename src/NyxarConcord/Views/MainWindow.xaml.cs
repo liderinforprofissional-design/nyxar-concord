@@ -292,6 +292,10 @@ public partial class MainWindow : Window
 
     private void GalleryRestore_Click(object sender, MouseButtonEventArgs e) => _vm.RestoreGallery();
 
+    private void InputVol_Click(object sender, RoutedEventArgs e) => InVolPopup.IsOpen = !InVolPopup.IsOpen;
+    private void OutputVol_Click(object sender, RoutedEventArgs e) => OutVolPopup.IsOpen = !OutVolPopup.IsOpen;
+    private void Deafen_Click(object sender, RoutedEventArgs e) => _vm.ToggleDeafen();
+
     private void Hangup_Click(object sender, RoutedEventArgs e) => _vm.LeaveCall();
     private void MuteMic_Click(object sender, RoutedEventArgs e) => _vm.ToggleMic();
 

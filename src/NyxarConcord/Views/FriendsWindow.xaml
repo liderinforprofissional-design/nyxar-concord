@@ -49,6 +49,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <Grid Width="38" Height="38" VerticalAlignment="Center">
                                         <Border CornerRadius="19" Background="{StaticResource Brand.Gradient}">
@@ -68,6 +69,24 @@
                                         <TextBlock Text="{Binding Name}" Foreground="{StaticResource Text.Primary}" FontWeight="SemiBold" />
                                         <TextBlock Text="{Binding Handle}" Foreground="{StaticResource Text.Muted}" FontSize="10" />
                                     </StackPanel>
+                                    <Button Grid.Column="2" VerticalAlignment="Center" Cursor="Hand" Click="Message_Click"
+                                            ToolTip="Enviar mensagem">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="mb" Width="34" Height="34" CornerRadius="10"
+                                                        Background="{StaticResource Bg.Card}">
+                                                    <Path Data="{StaticResource Icon.Message}" Fill="{StaticResource Text.Primary}"
+                                                          Width="16" Height="16" Stretch="Uniform"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="mb" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -80,12 +99,13 @@
                     <ItemsControl ItemsSource="{Binding OfflineFriends}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="6,3" Cursor="Hand" Background="Transparent" Opacity="0.55" MouseLeftButtonUp="Friend_Click">
+                                <Grid Margin="6,3" Cursor="Hand" Background="Transparent" MouseLeftButtonUp="Friend_Click">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Grid Width="38" Height="38" VerticalAlignment="Center">
+                                    <Grid Width="38" Height="38" VerticalAlignment="Center" Opacity="0.55">
                                         <Border CornerRadius="19" Background="{StaticResource Bg.Hover}">
                                             <TextBlock Text="{Binding Initials}" Foreground="White" FontWeight="SemiBold"
                                                        FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -99,10 +119,28 @@
                                         <Ellipse Width="11" Height="11" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                  Fill="{StaticResource Text.Muted}" Stroke="{StaticResource Bg.Dark}" StrokeThickness="2" />
                                     </Grid>
-                                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Opacity="0.55">
                                         <TextBlock Text="{Binding Name}" Foreground="{StaticResource Text.Primary}" FontWeight="SemiBold" />
                                         <TextBlock Text="Offline" Foreground="{StaticResource Text.Muted}" FontSize="10" />
                                     </StackPanel>
+                                    <Button Grid.Column="2" VerticalAlignment="Center" Cursor="Hand" Click="Message_Click"
+                                            ToolTip="Enviar mensagem (mesmo offline)">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="mb" Width="34" Height="34" CornerRadius="10"
+                                                        Background="{StaticResource Bg.Card}">
+                                                    <Path Data="{StaticResource Icon.Message}" Fill="{StaticResource Text.Primary}"
+                                                          Width="16" Height="16" Stretch="Uniform"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="mb" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
