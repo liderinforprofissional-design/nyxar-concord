@@ -165,4 +165,80 @@ public class ChatMessage
 
     /// <summary>Uma mensagem de texto normal (nem sistema, nem arquivo).</summary>
     [JsonIgnore] public bool IsText => !IsFile && !IsSystem;
+
+    // --- Preview de link (card com título/descrição/imagem da página) ---
+    /// <summary>Primeira URL http(s) encontrada no texto (ou null).</summary>
+    [JsonIgnore]
+    public string? FirstUrl
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(Text)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(Text, @"https?://[^\s]+");
+            return m.Success ? m.Value.TrimEnd('.', ',', ')', ']', '}') : null;
+        }
+    }
+
+    /// <summary>Card de pré-visualização do link (preenchido de forma assíncrona).</summary>
+    [JsonIgnore]
+    public LinkPreview? Link { get; set; }
+
+    // --- Tipo de anexo (imagem / vídeo mostram preview; o resto vira card comum) ---
+    private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp" };
+    private static readonly string[] VideoExts = { ".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v" };
+
+    private bool HasExt(string[] exts)
+    {
+        var e = System.IO.Path.GetExtension(FileName)?.ToLowerInvariant() ?? "";
+        return Array.IndexOf(exts, e) >= 0;
+    }
+
+    [JsonIgnore] public bool IsImageFile => IsFile && HasExt(ImageExts);
+    [JsonIgnore] public bool IsVideoFile => IsFile && HasExt(VideoExts);
+    /// <summary>Arquivo comum (nem imagem nem vídeo): mostra o card com botão "Salvar".</summary>
+    [JsonIgnore] public bool IsOtherFile => IsFile && !IsImageFile && !IsVideoFile;
+
+    /// <summary>Miniatura da imagem (construída dos bytes, em cache).</summary>
+    private System.Windows.Media.ImageSource? _imagePreview;
+    [JsonIgnore]
+    public System.Windows.Media.ImageSource? ImagePreview
+    {
+        get
+        {
+            if (_imagePreview is not null || FileData is null || !IsImageFile) return _imagePreview;
+            try
+            {
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bmp.StreamSource = new System.IO.MemoryStream(FileData);
+                bmp.DecodePixelWidth = 480; // miniatura leve
+                bmp.EndInit();
+                bmp.Freeze();
+                _imagePreview = bmp;
+            }
+            catch { }
+            return _imagePreview;
+        }
+    }
+
+    /// <summary>Caminho temporário do vídeo (o MediaElement precisa de um arquivo), em cache.</summary>
+    private string? _mediaPath;
+    [JsonIgnore]
+    public string? MediaPath
+    {
+        get
+        {
+            if (_mediaPath is not null || FileData is null || !IsVideoFile) return _mediaPath;
+            try
+            {
+                string ext = System.IO.Path.GetExtension(FileName);
+                string p = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nyxar-{Guid.NewGuid():N}{ext}");
+                System.IO.File.WriteAllBytes(p, FileData);
+                _mediaPath = new Uri(p).AbsoluteUri; // file:///... (o MediaElement resolve melhor)
+            }
+            catch { }
+            return _mediaPath;
+        }
+    }
 }

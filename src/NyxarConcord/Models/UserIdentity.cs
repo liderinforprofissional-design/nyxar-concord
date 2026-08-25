@@ -44,6 +44,10 @@ public sealed class UserIdentity
     [JsonPropertyName("loggedIn")]
     public bool LoggedIn { get; set; }
 
+    /// <summary>Conta desativada temporariamente (fica fora até logar de novo).</summary>
+    [JsonPropertyName("deactivated")]
+    public bool Deactivated { get; set; }
+
     [JsonPropertyName("audio")]
     public AudioPreferences Audio { get; set; } = new();
 

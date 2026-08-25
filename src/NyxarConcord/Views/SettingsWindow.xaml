@@ -64,6 +64,23 @@
                                Foreground="{StaticResource Text.Muted}" Margin="0,14,0,6" />
                     <ComboBox ItemsSource="{Binding InputDevices}" SelectedItem="{Binding SelectedInput}" />
 
+                    <!-- Teste de microfone com medidor de nível ao vivo -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button Content="{Binding TestButtonLabel}" Click="TestMic_Click" Cursor="Hand"
+                                Padding="14,7" FontWeight="SemiBold" BorderThickness="0"
+                                Background="{StaticResource Accent}" Foreground="White" />
+                        <Border Grid.Column="1" Margin="10,0,0,0" Height="12" VerticalAlignment="Center"
+                                CornerRadius="6" Background="{StaticResource Bg.Input}" ClipToBounds="True">
+                            <ProgressBar Minimum="0" Maximum="1" Value="{Binding MicLevel}"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="{StaticResource Online}" />
+                        </Border>
+                    </Grid>
+
                     <TextBlock Text="ALTO-FALANTE / FONE (SAÍDA)" FontSize="11" FontWeight="SemiBold"
                                Foreground="{StaticResource Text.Muted}" Margin="0,18,0,6" />
                     <ComboBox ItemsSource="{Binding OutputDevices}" SelectedItem="{Binding SelectedOutput}" />
@@ -102,6 +119,39 @@
                     <Button Content="Sair da conta" HorizontalAlignment="Left" Margin="0,14,0,0" Cursor="Hand"
                             Background="{StaticResource Badge}" Foreground="White" BorderThickness="0"
                             Padding="16,9" FontWeight="SemiBold" Click="Logout_Click" />
+
+                    <!-- Zona de perigo: desativar / excluir conta -->
+                    <TextBlock Text="ZONA DE PERIGO" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{StaticResource Badge}" Margin="0,22,0,6" />
+
+                    <Border Background="{StaticResource Bg.Card}" CornerRadius="10" Padding="14,12" Margin="0,0,0,0">
+                        <Grid>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                <TextBlock Text="Desativar sua conta" Foreground="{StaticResource Text.Primary}"
+                                           FontWeight="SemiBold" FontSize="13" />
+                                <TextBlock Text="Desative temporariamente. Volta ao ativar quando você entrar de novo."
+                                           Foreground="{StaticResource Text.Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Content="Desativar conta" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Cursor="Hand" Padding="14,8" FontWeight="SemiBold" Click="Deactivate_Click"
+                                    Background="{StaticResource Bg.Input}" Foreground="{StaticResource Badge}"
+                                    BorderBrush="{StaticResource Border.Soft}" BorderThickness="1" />
+                        </Grid>
+                    </Border>
+
+                    <Border Background="{StaticResource Bg.Card}" CornerRadius="10" Padding="14,12" Margin="0,10,0,0">
+                        <Grid>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                <TextBlock Text="Encerrar sua conta" Foreground="{StaticResource Text.Primary}"
+                                           FontWeight="SemiBold" FontSize="13" />
+                                <TextBlock Text="Apaga a conta e todos os dados desta máquina. Não dá pra desfazer."
+                                           Foreground="{StaticResource Text.Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <Button Content="Excluir conta" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Cursor="Hand" Padding="14,8" FontWeight="SemiBold" Click="Delete_Click"
+                                    Background="{StaticResource Badge}" Foreground="White" BorderThickness="0" />
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
 

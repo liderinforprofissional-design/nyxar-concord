@@ -20,6 +20,11 @@ public sealed class Server : INotifyPropertyChanged
     private string _avatarPath = "";
     public string AvatarPath { get => _avatarPath; set => Set(ref _avatarPath, value); }
 
+    /// <summary>True quando há alguém em uma sala de voz deste servidor (badge no ícone).</summary>
+    private bool _hasVoiceActivity;
+    [JsonIgnore]
+    public bool HasVoiceActivity { get => _hasVoiceActivity; set => Set(ref _hasVoiceActivity, value); }
+
     /// <summary>PeerId do dono (criador).</summary>
     public string OwnerId { get; set; } = "";
 

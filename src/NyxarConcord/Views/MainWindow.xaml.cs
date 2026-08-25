@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using Hardcodet.Wpf.TaskbarNotification;
 using Microsoft.Win32;
 using NyxarConcord.Models;
 using NyxarConcord.Services;
@@ -69,7 +70,8 @@ public partial class MainWindow : Window
         Title = _vm.AppTitle; // "Nyxar Concord vX.Y.Z" na barra de título/taskbar
 
         _vm.Messages.CollectionChanged += OnMessagesChanged;
-        Closed += (_, _) => _vm.Dispose();
+        _vm.NotificationRequested += OnNotificationRequested;
+        Closed += (_, _) => { try { TrayIcon?.Dispose(); } catch { } _vm.Dispose(); };
 
         // Verifica atualizações no GitHub após a janela abrir (silencioso se falhar).
         Loaded += async (_, _) => await CheckForUpdatesAsync();
@@ -240,9 +242,11 @@ public partial class MainWindow : Window
         var win = new SettingsWindow(vm) { Owner = this };
         if (win.ShowDialog() != true) return;
 
-        if (win.LogoutRequested)
+        if (win.LogoutRequested || win.DeactivateRequested || win.DeleteRequested)
         {
-            _vm.Logout();
+            if (win.DeleteRequested) _vm.DeleteAccount();
+            else if (win.DeactivateRequested) _vm.DeactivateAccount();
+            else _vm.Logout();
             try { System.Diagnostics.Process.Start(System.Environment.ProcessPath ?? ""); } catch { }
             Application.Current.Shutdown();
             return;
@@ -329,6 +333,78 @@ public partial class MainWindow : Window
     private void ToggleWatch_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { DataContext: RoomMember member }) _vm.ToggleWatch(member);
+    }
+
+    // Notificação temporária na bandeja quando chega mensagem e a janela não está em foco.
+    private void OnNotificationRequested(string title, string body)
+    {
+        if (IsActive && WindowState != WindowState.Minimized) return; // só quando fora de foco
+        if (body.Length > 120) body = body[..120] + "…";
+        try { TrayIcon?.ShowBalloonTip(title, body, BalloonIcon.Info); } catch { }
+    }
+
+    // Duplo clique no ícone da bandeja: traz a janela de volta.
+    private void TrayIcon_DoubleClick(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
+        Topmost = true; Topmost = false;
+    }
+
+    // Abre o link do card de pré-visualização no navegador.
+    private void LinkPreview_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string url } && !string.IsNullOrEmpty(url))
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch { }
+    }
+
+    // Não abre o menu de contexto no PRÓPRIO usuário (silenciar/volume não valem para si).
+    private void Member_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: RoomMember m } && m.IsSelf) e.Handled = true;
+    }
+
+    // --- Preview de vídeo no chat (clique para reproduzir/pausar) ---
+    private readonly HashSet<MediaElement> _videoPlaying = new();
+
+    private void Video_Opened(object sender, RoutedEventArgs e)
+    {
+        // Mostra o primeiro quadro como "capa" (pausado no início).
+        if (sender is MediaElement me)
+            try { me.Position = TimeSpan.Zero; me.Pause(); } catch { }
+    }
+
+    private void Video_Ended(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MediaElement me) return;
+        _videoPlaying.Remove(me);
+        try { me.Position = TimeSpan.Zero; me.Pause(); } catch { }
+        if (me.Parent is Grid host)
+        {
+            var overlay = host.Children.OfType<Grid>().FirstOrDefault();
+            var badge = overlay?.Children.OfType<Border>().FirstOrDefault();
+            if (badge is not null) badge.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void Video_Toggle(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Grid overlay || overlay.Parent is not Grid host) return;
+        var me = host.Children.OfType<MediaElement>().FirstOrDefault();
+        if (me is null) return;
+        var badge = overlay.Children.OfType<Border>().FirstOrDefault();
+        if (_videoPlaying.Contains(me))
+        {
+            me.Pause(); _videoPlaying.Remove(me);
+            if (badge is not null) badge.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            me.Play(); _videoPlaying.Add(me);
+            if (badge is not null) badge.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void Tile_Click(object sender, MouseButtonEventArgs e)

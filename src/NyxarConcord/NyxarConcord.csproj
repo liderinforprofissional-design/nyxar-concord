@@ -9,7 +9,7 @@
     <RootNamespace>NyxarConcord</RootNamespace>
     <AssemblyName>NyxarConcord</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.18.0</Version>
+    <Version>0.19.0</Version>
     <Product>Nyxar Concord</Product>
     <!-- Ãcone do app (barra de tarefas / .exe) -->
     <ApplicationIcon>Assets\nyxar.ico</ApplicationIcon>
@@ -24,6 +24,8 @@
          (libvpx / vpxmd.dll) vem dentro deste pacote e Ã© copiado sozinho na build,
          sem precisar baixar DLLs Ã  mÃ£o como no FFmpeg. -->
     <PackageReference Include="SIPSorceryMedia.Encoders" Version="10.0.4" />
+    <!-- Ícone + notificações (balões) na bandeja do Windows -->
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
   </ItemGroup>
 
   <!-- Imagens da marca (coloque nyxar.png em Assets\) -->
@@ -50,7 +52,6 @@
   -->
 
 </Project>
-
 
 
 

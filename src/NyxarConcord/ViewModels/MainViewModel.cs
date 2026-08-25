@@ -41,6 +41,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<Server> Servers { get; } = new();
     public ObservableCollection<ChatMessage> Messages { get; } = new();
 
+    // Busca de metadados de links para o card de pré-visualização no chat.
+    private readonly LinkPreviewService _linkPreview = new();
+
+    /// <summary>Pedido de notificação na bandeja (título, texto). A View decide se mostra.</summary>
+    public event Action<string, string>? NotificationRequested;
+
     // Amigos/contatos (persistidos para mostrar também os offline).
     private readonly FriendStore _friendStore = new();
     private readonly Dictionary<string, FriendViewModel> _friends = new();
@@ -73,6 +79,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         // Torna o id do usuário visível aos modelos (permissões de admin na UI).
         Session.SelfId = identity.PeerId;
+
+        // Chegou até aqui = logou. Se a conta estava desativada, reativa.
+        if (identity.Deactivated) { identity.Deactivated = false; identityService.Save(identity); }
 
         _voice.NoiseSuppression = identity.Audio.NoiseSuppression;
         _voice.SelfId = identity.PeerId;
@@ -383,6 +392,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IdentityService.Save(Identity);
     }
 
+    /// <summary>Desativa a conta temporariamente: sai e marca como desativada
+    /// (volta a ativar quando entrar de novo com a senha).</summary>
+    public void DeactivateAccount()
+    {
+        Identity.Deactivated = true;
+        Identity.LoggedIn = false;
+        IdentityService.Save(Identity);
+    }
+
+    /// <summary>Exclui a conta e TODOS os dados locais desta máquina (permanente).</summary>
+    public void DeleteAccount()
+    {
+        try { _serverStore.Save(Array.Empty<Server>()); } catch { }
+        try { _friendStore.Save(Array.Empty<FriendRecord>()); } catch { }
+        IdentityService.DeleteAllData();
+    }
+
     // ============================================================
     //  Canal atual (sala) + conversa
     // ============================================================
@@ -589,12 +615,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
             AnnounceMicState(); // avisa se entrei já mutado
             StartPresenceHeartbeat(room);
+            RefreshServerVoiceBadges();
         }
         else
         {
             _voice.Stop();
             _voiceTargets = Array.Empty<Peer>();
             _voiceRoomId = null;
+            RefreshServerVoiceBadges();
         }
     }
 
@@ -683,6 +711,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, Text = text, IsMine = true
         };
+        AttachLinkPreview(mine);
         Messages.Add(mine);
         _sfx.MessageSent();
         Diag.Log("MSG-TX", $"enviando ({text.Length} chars) selfNotes={_isSelfNotes} peer={_selectedPeer?.Peer.Id ?? "(nenhum)"} room={_currentRoom?.Id ?? "(nenhuma)"}");
@@ -725,6 +754,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, Text = text, IsMine = true
         };
+        AttachLinkPreview(mine);
         // Se essa DM já está aberta, mostra a mensagem na hora.
         if (_selectedPeer?.Peer.Id == peer.Peer.Id) Messages.Add(mine);
         _sfx.MessageSent();
@@ -919,6 +949,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                             IsFile = true, FileName = done.Name, FileSize = data.LongLength, FileData = data
                         });
                         _sfx.FileReceived();
+                        NotificationRequested?.Invoke(done.SenderName, $"enviou um arquivo: {done.Name}");
                     });
                 }
                 break;
@@ -1189,6 +1220,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (member.IsSelf) return;
         ToggleMuteForPeer(member.PeerId);
+        // Garante o estado na instância exata que foi clicada (à prova de falha,
+        // caso ela não esteja nas coleções varridas por AllMemberInstances).
+        member.IsMutedByMe = _locallyMuted.Contains(member.PeerId);
     }
 
     /// <summary>Silencia/reativa localmente o áudio de um peer (usado também pelos
@@ -1549,21 +1583,47 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!sharing && _maxTile?.PeerId == peerId) MaximizedGalleryTile = null;
     }
 
+    // Coalescência dos quadros recebidos por WebRTC: guarda só o mais recente por
+    // pessoa e enfileira no máximo uma atualização de UI por vez — assim não acumula
+    // fila nem trava se a UI ficar um pouco atrás (fim das "pequenas travadas").
+    private readonly Dictionary<string, System.Windows.Media.Imaging.BitmapSource> _rtcLatest = new();
+    private readonly HashSet<string> _rtcPending = new();
+    private readonly object _rtcGate = new();
+
     // Quadro de tela recebido por WebRTC (VP8 decodificado em BGR) -> tile.
+    // IMPORTANTE: a conversão da imagem é feita AQUI (fora da thread de UI) e
+    // "congelada", para não bloquear a thread do WebRTC nem sobrecarregar a UI.
     private void OnWebRtcVideoFrame(string peerId, byte[] bgr, int w, int h, int stride)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        if (peerId == SelfId) return;
+        var img = BgrToBitmap(bgr, w, h, stride); // fora da UI, já frozen
+        if (img is null) return;
+
+        bool queue;
+        lock (_rtcGate)
         {
-            if (peerId == SelfId) return;
+            _rtcLatest[peerId] = img;      // só o quadro mais novo importa
+            queue = _rtcPending.Add(peerId); // true se ainda não havia um pendente
+        }
+        if (!queue) return; // já há uma atualização a caminho; esta some (mostra a mais nova)
+
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            System.Windows.Media.Imaging.BitmapSource? frame;
+            lock (_rtcGate)
+            {
+                _rtcPending.Remove(peerId);
+                _rtcLatest.TryGetValue(peerId, out frame);
+                _rtcLatest.Remove(peerId);
+            }
+            if (frame is null) return;
             if (_watchBlocked.Contains(peerId)) return; // parei de assistir esta pessoa
-            var img = BgrToBitmap(bgr, w, h, stride);
-            if (img is null) return;
             string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
                           ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
             SetMemberSharing(peerId, true);
             var tile = GetOrCreateTile(peerId, name, false);
-            if (tile is not null) tile.Frame = img;
-            UpdateGalleryTile(peerId, t => t.Frame = img);
+            if (tile is not null) tile.Frame = frame;
+            UpdateGalleryTile(peerId, t => t.Frame = frame);
         });
     }
 
@@ -1922,6 +1982,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             SetMemberSharing(id, false);
             RemoveTile(id);
             _webVoice.PeerLeft(id);
+            RefreshServerVoiceBadges();
         });
     }
 
@@ -1943,6 +2004,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             _sfx.MessageReceived();
+            AttachLinkPreview(msg);
+            NotificationRequested?.Invoke(peer.DisplayName,
+                string.IsNullOrWhiteSpace(msg.Text) ? "enviou uma mensagem" : msg.Text);
             bool viewingPeer = _selectedPeer?.Peer.Id == peer.Id;
             bool viewingServerWithPeer = _currentServer?.Members.Any(m => m.PeerId == peer.Id) == true && _currentRoom is not null;
             if (viewingPeer || viewingServerWithPeer)
@@ -2133,6 +2197,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (m is not null) room.Members.Remove(m);
         }
         if (_currentRoom?.Id == room.Id) UpdateVoiceTargets();
+        RefreshServerVoiceBadges();
+    }
+
+    /// <summary>Se a mensagem tem um link, dispara a busca do preview (assíncrono).</summary>
+    private void AttachLinkPreview(ChatMessage m)
+    {
+        if (!m.IsText) return;
+        var url = m.FirstUrl;
+        if (string.IsNullOrEmpty(url)) return;
+        m.Link = new LinkPreview { Url = url };
+        _ = _linkPreview.FillAsync(m.Link);
+    }
+
+    /// <summary>Atualiza o selo de "tem gente na voz" no ícone de cada servidor.</summary>
+    private void RefreshServerVoiceBadges()
+    {
+        // Ids de salas de voz que têm alguém agora (por presença ou por eu estar nelas).
+        var activeRooms = new HashSet<string>(_peerRoom.Values);
+        if (_voiceRoomId is not null) activeRooms.Add(_voiceRoomId);
+
+        foreach (var s in Servers)
+        {
+            bool active = s.Channels.Any(c => c.IsAudio && activeRooms.Contains(c.Id));
+            if (s.HasVoiceActivity != active) s.HasVoiceActivity = active;
+        }
     }
 
     private void HandleChannelUpdate(ChatMessage msg)

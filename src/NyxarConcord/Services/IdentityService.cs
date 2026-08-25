@@ -58,4 +58,13 @@ public sealed class IdentityService
             // Sem permissão de escrita — segue em memória.
         }
     }
+
+    /// <summary>Apaga TODOS os dados locais desta conta (excluir conta permanente).</summary>
+    public void DeleteAllData()
+    {
+        foreach (var file in new[] { "identity.json", "servers.json", "friends.json", "rooms.json" })
+        {
+            try { File.Delete(Path.Combine(ConfigDirectory, file)); } catch { }
+        }
+    }
 }

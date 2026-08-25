@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:NyxarConcord.Views"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:tb="http://www.hardcodet.net/taskbar"
         Title="Nyxar Concord" Height="700" Width="1120" MinWidth="820" MinHeight="520"
         Background="{StaticResource App.Bg}" WindowStartupLocation="CenterScreen">
 
@@ -71,6 +72,11 @@
             <RowDefinition Height="38" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- Ícone na bandeja do Windows (com balões de notificação) -->
+        <tb:TaskbarIcon x:Name="TrayIcon" IconSource="/Assets/nyxar.ico" ToolTipText="Nyxar Concord"
+                        TrayMouseDoubleClick="TrayIcon_DoubleClick" />
+
 
         <!-- ==================== BARRA DE TÍTULO (tema do app) ==================== -->
         <Grid Grid.Row="0" Background="{StaticResource Header.Bg}">
@@ -154,6 +160,17 @@
                                                             Stretch="UniformToFill" />
                                             </Rectangle.Fill>
                                         </Rectangle>
+                                        <!-- Selo verde: tem gente numa sala de voz deste servidor -->
+                                        <Border Width="18" Height="18" CornerRadius="9" Margin="0,0,-3,-3"
+                                                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                Background="{StaticResource Online}"
+                                                BorderBrush="{StaticResource Bg.Dark}" BorderThickness="2"
+                                                ToolTip="Há pessoas na sala de voz"
+                                                Visibility="{Binding HasVoiceActivity, Converter={StaticResource BoolToVis}}">
+                                            <Path Data="{StaticResource Icon.Volume}" Fill="White"
+                                                  Width="10" Height="10" Stretch="Uniform"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
                                     </Grid>
                                 </Button>
                             </DataTemplate>
@@ -254,7 +271,8 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <Grid Margin="0,3" Cursor="Hand" Background="Transparent"
-                                                              MouseLeftButtonUp="Member_Click">
+                                                              MouseLeftButtonUp="Member_Click"
+                                                              ContextMenuOpening="Member_ContextMenuOpening">
                                                             <Grid.ContextMenu>
                                                                 <ContextMenu>
                                                                     <MenuItem Header="{Binding MuteMenuLabel}" Click="ToggleMute_Click" />
@@ -290,6 +308,16 @@
                                                                 </Ellipse>
                                                                 <Ellipse Width="22" Height="22" Stroke="{StaticResource Online}" StrokeThickness="2"
                                                                          Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
+                                                                <!-- Selo de "silenciado por mim" sobre o avatar -->
+                                                                <Border Width="12" Height="12" CornerRadius="6"
+                                                                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                                        Background="{StaticResource Badge}"
+                                                                        BorderBrush="{StaticResource Bg.Dark}" BorderThickness="1.5"
+                                                                        ToolTip="Você silenciou esta pessoa"
+                                                                        Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}">
+                                                                    <Path Data="{StaticResource Icon.VolumeOff}" Width="7" Height="7"
+                                                                          Stretch="Uniform" Fill="White" />
+                                                                </Border>
                                                             </Grid>
                                                             <TextBlock Grid.Column="1" Text="{Binding DisplayName}"
                                                                        Foreground="{StaticResource Text.Muted}" FontSize="12"
@@ -629,11 +657,98 @@
                                                                Foreground="{StaticResource Text.Primary}" />
                                                 </Border>
 
-                                                <!-- Card de arquivo -->
+                                                <!-- Preview de LINK (Open Graph) -->
+                                                <Border Margin="0,4,0,0" HorizontalAlignment="Left" MaxWidth="440" CornerRadius="8"
+                                                        Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}"
+                                                        BorderThickness="1" Cursor="Hand" MouseLeftButtonUp="LinkPreview_Click"
+                                                        Tag="{Binding Link.Url}"
+                                                        Visibility="{Binding Link.IsLoaded, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="4" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Background="{StaticResource Accent}" CornerRadius="8,0,0,8" />
+                                                        <StackPanel Grid.Column="1" Margin="12,10">
+                                                            <TextBlock Text="{Binding Link.SiteName}" Foreground="{StaticResource Text.Muted}"
+                                                                       FontSize="10" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding Link.Title}" Foreground="{StaticResource Accent}"
+                                                                       FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                                            <TextBlock Text="{Binding Link.Description}" Foreground="{StaticResource Text.Primary}"
+                                                                       FontSize="12" TextWrapping="Wrap" MaxHeight="72" Margin="0,4,0,0"
+                                                                       Visibility="{Binding Link.HasDescription, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                                                            <Image Source="{Binding Link.Image}" Stretch="Uniform" MaxWidth="400" MaxHeight="220"
+                                                                   Margin="0,8,0,0" RenderOptions.BitmapScalingMode="HighQuality"
+                                                                   Visibility="{Binding Link.HasImage, Converter={StaticResource BoolToVis}, FallbackValue=Collapsed}" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+
+                                                <!-- Preview de IMAGEM -->
+                                                <Border Margin="0,4,0,0" HorizontalAlignment="Left" CornerRadius="12" Padding="6"
+                                                        Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}"
+                                                        BorderThickness="1"
+                                                        Visibility="{Binding IsImageFile, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel>
+                                                        <Image Source="{Binding ImagePreview}" Stretch="Uniform"
+                                                               MaxWidth="340" MaxHeight="320"
+                                                               RenderOptions.BitmapScalingMode="HighQuality" />
+                                                        <Grid Margin="4,6,2,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding FileName}" Foreground="{StaticResource Text.Muted}"
+                                                                       FontSize="10" MaxWidth="240" VerticalAlignment="Center"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <Button Grid.Column="1" Content="Salvar" Style="{StaticResource GhostButton}"
+                                                                    Padding="10,4" Click="SaveFile_Click"
+                                                                    Visibility="{Binding CanSaveFile, Converter={StaticResource BoolToVis}}" />
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Preview de VÍDEO (clique para reproduzir/pausar) -->
+                                                <Border Margin="0,4,0,0" HorizontalAlignment="Left" CornerRadius="12" Padding="6"
+                                                        Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}"
+                                                        BorderThickness="1"
+                                                        Visibility="{Binding IsVideoFile, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel>
+                                                        <Grid MaxWidth="360" MaxHeight="320">
+                                                            <MediaElement Source="{Binding MediaPath}" Stretch="Uniform"
+                                                                          LoadedBehavior="Manual" UnloadedBehavior="Manual"
+                                                                          ScrubbingEnabled="True" MaxWidth="360" MaxHeight="320"
+                                                                          MediaOpened="Video_Opened" MediaEnded="Video_Ended" />
+                                                            <Grid Background="#01000000" Cursor="Hand" MouseLeftButtonUp="Video_Toggle">
+                                                                <Border x:Name="playBadge" Width="54" Height="54" CornerRadius="27"
+                                                                        Background="#99000000" HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center">
+                                                                    <Path Data="{StaticResource Icon.Play}" Fill="White"
+                                                                          Width="22" Height="22" Stretch="Uniform" Margin="4,0,0,0"
+                                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                </Border>
+                                                            </Grid>
+                                                        </Grid>
+                                                        <Grid Margin="4,6,2,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding FileName}" Foreground="{StaticResource Text.Muted}"
+                                                                       FontSize="10" MaxWidth="260" VerticalAlignment="Center"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                            <Button Grid.Column="1" Content="Salvar" Style="{StaticResource GhostButton}"
+                                                                    Padding="10,4" Click="SaveFile_Click"
+                                                                    Visibility="{Binding CanSaveFile, Converter={StaticResource BoolToVis}}" />
+                                                        </Grid>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <!-- Card de arquivo comum (nem imagem nem vídeo) -->
                                                 <Border Margin="0,4,0,0" Background="{StaticResource Bg.Card}" CornerRadius="12"
                                                         Padding="10" HorizontalAlignment="Left"
                                                         BorderBrush="{StaticResource Border.Soft}" BorderThickness="1"
-                                                        Visibility="{Binding IsFile, Converter={StaticResource BoolToVis}}">
+                                                        Visibility="{Binding IsOtherFile, Converter={StaticResource BoolToVis}}">
                                                     <Grid>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto" />
@@ -758,7 +873,8 @@
                                                         </ControlTemplate.Triggers>
                                                     </ControlTemplate>
                                                 </Button.Template>
-                                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="14" FontWeight="Bold" />
+                                                <Path Data="{StaticResource Icon.EyeOff}" Width="18" Height="18"
+                                                      Stretch="Uniform" Fill="White" />
                                             </Button>
                                         </Grid>
                                     </Border>
@@ -818,7 +934,8 @@
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
                                 </Button.Template>
-                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="16" FontWeight="Bold" />
+                                <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
+                                      Stretch="Uniform" Fill="White" />
                             </Button>
                         </Grid>
 
@@ -992,7 +1109,8 @@
                                                         </ControlTemplate.Triggers>
                                                     </ControlTemplate>
                                                 </Button.Template>
-                                                <TextBlock Text="&#x2715;" Foreground="White" FontSize="16" FontWeight="Bold" />
+                                                <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
+                                      Stretch="Uniform" Fill="White" />
                                             </Button>
                                         </Grid>
                                     </Border>
@@ -1036,7 +1154,8 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="6,5" Cursor="Hand" Background="Transparent"
-                                      MouseLeftButtonUp="Member_Click">
+                                      MouseLeftButtonUp="Member_Click"
+                                      ContextMenuOpening="Member_ContextMenuOpening">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -1076,6 +1195,16 @@
                                                  Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
                                         <Ellipse Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                                  Fill="{StaticResource Online}" Stroke="{StaticResource Bg.Dark}" StrokeThickness="2" />
+                                        <!-- Selo de "silenciado por mim" sobre o avatar -->
+                                        <Border Width="16" Height="16" CornerRadius="8"
+                                                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                Background="{StaticResource Badge}"
+                                                BorderBrush="{StaticResource Bg.Dark}" BorderThickness="2"
+                                                ToolTip="Você silenciou esta pessoa"
+                                                Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}">
+                                            <Path Data="{StaticResource Icon.VolumeOff}" Width="9" Height="9"
+                                                  Stretch="Uniform" Fill="White" />
+                                        </Border>
                                     </Grid>
                                     <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource Text.Primary}"
