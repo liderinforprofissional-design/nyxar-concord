@@ -92,7 +92,8 @@ begin
   WizardForm.Bevel.Visible := False;
 
   // ---- Corpo (páginas) ----
-  WizardForm.InnerNotebook.Color := clBgDarkest;
+  // (TNewNotebook não tem Color; só as páginas têm — e a página ativa
+  //  cobre o notebook inteiro, então basta colorir as páginas.)
   WizardForm.InnerPage.Color := clBgDarkest;
   WizardForm.InstallingPage.Color := clBgDarkest;
 
