@@ -9,7 +9,7 @@
     <RootNamespace>NyxarConcord</RootNamespace>
     <AssemblyName>NyxarConcord</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.31.0</Version>
+    <Version>0.38.0</Version>
     <Product>Nyxar Concord</Product>
     <!-- Ãcone do app (barra de tarefas / .exe) -->
     <ApplicationIcon>Assets\nyxar.ico</ApplicationIcon>

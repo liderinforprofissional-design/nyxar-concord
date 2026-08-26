@@ -57,6 +57,16 @@ public sealed class Room : INotifyPropertyChanged
     [JsonIgnore]
     public bool CanManageByMe { get => _canManageByMe; set => Set(ref _canManageByMe, value); }
 
+    /// <summary>Cronômetro da call desta sala (ex.: "12:34"), ao lado do nome na barra.</summary>
+    private string _callTimer = "";
+    [JsonIgnore]
+    public string CallTimer { get => _callTimer; set => Set(ref _callTimer, value); }
+
+    /// <summary>Mostra o cronômetro ao lado do nome (quando há call em andamento aqui).</summary>
+    private bool _showCallTimer;
+    [JsonIgnore]
+    public bool ShowCallTimer { get => _showCallTimer; set => Set(ref _showCallTimer, value); }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? n = null)
         => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
@@ -79,6 +89,10 @@ public sealed class RoomMember : INotifyPropertyChanged
     /// <summary>O próprio usuário silenciou o microfone (propagado a todos).</summary>
     private bool _isMuted;
     public bool IsMuted { get => _isMuted; set => Set(ref _isMuted, value); }
+
+    /// <summary>É administrador/dono do servidor (mostra o selo ADM ao lado do nome).</summary>
+    private bool _isAdmin;
+    public bool IsAdmin { get => _isAdmin; set => Set(ref _isAdmin, value); }
 
     /// <summary>Volume desta pessoa para mim (1 = 100%). Ajustável no menu de contexto.</summary>
     private double _volume = 1.0;

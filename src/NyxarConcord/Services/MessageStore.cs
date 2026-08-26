@@ -14,6 +14,8 @@ public sealed class StoredMessage
     public bool File { get; set; }
     public string FileName { get; set; } = "";
     public long FileSize { get; set; }
+    /// <summary>Caminho do arquivo salvo no histórico (para reabrir/baixar depois).</summary>
+    public string? FilePath { get; set; }
 }
 
 /// <summary>

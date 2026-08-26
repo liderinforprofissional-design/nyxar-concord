@@ -51,7 +51,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         SenderId = m.SenderId, SenderName = m.SenderName, Text = m.Text,
         Ts = m.Timestamp.Ticks, Mine = m.IsMine,
-        File = m.IsFile, FileName = m.FileName, FileSize = m.FileSize
+        File = m.IsFile, FileName = m.FileName, FileSize = m.FileSize, FilePath = m.FilePath
     };
 
     private static ChatMessage FromStored(StoredMessage s)
@@ -61,13 +61,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Kind = MessageKind.Text, SenderId = s.SenderId, SenderName = s.SenderName,
             Text = s.Text, Timestamp = new DateTime(s.Ts, DateTimeKind.Utc), IsMine = s.Mine
         };
-        if (s.File) { m.IsFile = true; m.FileName = s.FileName; m.FileSize = s.FileSize; }
+        if (s.File) { m.IsFile = true; m.FileName = s.FileName; m.FileSize = s.FileSize; m.FilePath = s.FilePath; }
         return m;
     }
 
     private void LoadDmHistory(string peerId)
     {
         foreach (var s in _history.Load("dm-" + peerId)) Messages.Add(FromStored(s));
+    }
+
+    // Histórico de um canal (sala) do servidor — persistido por id do canal.
+    private static string ChannelKey(string roomId) => "ch-" + roomId;
+    private void LoadChannelHistory(string roomId)
+    {
+        foreach (var s in _history.Load(ChannelKey(roomId))) Messages.Add(FromStored(s));
     }
 
     /// <summary>Pedido de notificação na bandeja (título, texto). A View decide se mostra.</summary>
@@ -262,6 +269,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         CurrentRoom = null;
         CurrentServer = server;
         ApplyRoomPermissions(server);
+        RefreshAdminBadges(); // marca o selo ADM no dono/admins
         Messages.Clear();
         Messages.Add(SystemMessage($"Servidor \"{server.Name}\". Escolha uma sala para começar."));
         RaiseConversationChanged();
@@ -378,7 +386,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 PeerId = SelfId,
                 DisplayName = Identity.DisplayName,
                 IsSelf = true,
-                AvatarPath = Identity.AvatarPath
+                AvatarPath = Identity.AvatarPath,
+                IsAdmin = server.CanModerate(SelfId)
             });
     }
 
@@ -666,6 +675,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         CurrentRoom = room;
         Messages.Clear();
+        LoadChannelHistory(room.Id); // restaura as mensagens salvas deste canal
         Messages.Add(SystemMessage(room.IsAudio
             ? $"🔊 Você entrou no canal de voz \"{room.Name}\"."
             : $"💬 Canal \"{room.Name}\"."));
@@ -698,8 +708,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if ((_useWebRtcVoice || _useWebRtcVideo) && _relay.IsConnected)
                 _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
             EnsureRenderHook(); // liga o batimento de render (exibe vídeo sem travadas)
+            StartCallTimer(room); // cronômetro da call (duração desde o primeiro)
             _sfx.JoinCall();
-            NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
+            NotifyServer(RoomJoinMsg(room));
             AnnounceMicState(); // avisa se entrei já mutado
             StartPresenceHeartbeat(room);
             RefreshServerVoiceBadges();
@@ -719,7 +730,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             room.Members.Add(new RoomMember
             {
                 PeerId = SelfId, DisplayName = Identity.DisplayName, IsSelf = true,
-                AvatarPath = Identity.AvatarPath, IsMuted = _isMicMuted
+                AvatarPath = Identity.AvatarPath, IsMuted = _isMicMuted,
+                IsAdmin = _currentServer?.CanModerate(SelfId) == true
             });
     }
 
@@ -733,7 +745,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _presenceTimer.Tick += (_, _) =>
         {
             if (_currentRoom?.Id != room.Id || !_currentRoom.IsAudio) { StopPresenceHeartbeat(); return; }
-            NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
+            NotifyServer(RoomJoinMsg(room));
         };
         _presenceTimer.Start();
     }
@@ -742,6 +754,89 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _presenceTimer?.Stop();
         _presenceTimer = null;
+    }
+
+    // ============================================================
+    //  Cronômetro da call (duração desde que o PRIMEIRO entrou)
+    // ============================================================
+    // Sem servidor central: cada cliente propaga nas mensagens de presença o
+    // início da call que ele conhece, e todos convergem para o MENOR (o mais
+    // antigo) — ou seja, o momento em que a primeira pessoa entrou.
+    private DateTime? _callStartUtc;
+    private DispatcherTimer? _callTimer;
+    private Room? _callRoom;   // a sala cujo nome mostra o cronômetro
+
+    private string _callDuration = "";
+    public string CallDuration { get => _callDuration; private set => SetProperty(ref _callDuration, value); }
+    public bool ShowCallDuration => InCall && _callStartUtc is not null;
+
+    private static long ToUnixMs(DateTime utc) => new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeMilliseconds();
+    private static DateTime FromUnixMs(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime;
+
+    // Monta a mensagem de presença (RoomJoin) já com o início da call que eu conheço.
+    private ChatMessage RoomJoinMsg(Room room) => new()
+    {
+        Signal = SignalType.RoomJoin,
+        RoomId = room.Id,
+        ServerId = room.ServerId,
+        CallStart = _callStartUtc is null ? null : ToUnixMs(_callStartUtc.Value)
+    };
+
+    // Ao entrar numa call: se sou o primeiro (ninguém mais na sala), começo a
+    // contagem agora; senão espero o início chegar pelas mensagens de presença.
+    private void StartCallTimer(Room room)
+    {
+        bool othersHere = _peerRoom.Any(kv => kv.Value == room.Id && kv.Key != SelfId)
+                          || room.Members.Any(m => !m.IsSelf);
+        _callStartUtc = othersHere ? null : DateTime.UtcNow;
+        _callRoom = room;
+
+        _callTimer?.Stop();
+        _callTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _callTimer.Tick += (_, _) => UpdateCallDuration();
+        _callTimer.Start();
+        UpdateCallDuration();
+    }
+
+    private void StopCallTimer()
+    {
+        _callTimer?.Stop();
+        _callTimer = null;
+        _callStartUtc = null;
+        CallDuration = "";
+        if (_callRoom is not null) { _callRoom.CallTimer = ""; _callRoom.ShowCallTimer = false; }
+        _callRoom = null;
+        OnPropertyChanged(nameof(ShowCallDuration));
+    }
+
+    // Adota o início mais ANTIGO conhecido (convergência entre os participantes).
+    private void AdoptCallStart(long? unixMs)
+    {
+        if (unixMs is null || _currentRoom?.IsAudio != true) return;
+        var incoming = FromUnixMs(unixMs.Value);
+        if (_callStartUtc is null || incoming < _callStartUtc)
+        {
+            _callStartUtc = incoming;
+            UpdateCallDuration();
+        }
+    }
+
+    private void UpdateCallDuration()
+    {
+        if (_callStartUtc is null)
+        {
+            CallDuration = "";
+            if (_callRoom is not null) { _callRoom.CallTimer = ""; _callRoom.ShowCallTimer = false; }
+            OnPropertyChanged(nameof(ShowCallDuration));
+            return;
+        }
+        var elapsed = DateTime.UtcNow - _callStartUtc.Value;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero; // protege contra diferença de relógio
+        CallDuration = elapsed.TotalHours >= 1
+            ? $"{(int)elapsed.TotalHours}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}"
+            : $"{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+        if (_callRoom is not null) { _callRoom.CallTimer = CallDuration; _callRoom.ShowCallTimer = true; }
+        OnPropertyChanged(nameof(ShowCallDuration));
     }
 
     private void OnRoomMembersChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -759,6 +854,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _currentRoom.Members.CollectionChanged -= OnRoomMembersChanged;
             _webVoice.Stop();
             _voice.Stop();
+            StopCallTimer(); // encerra o cronômetro da call para mim
             var self = _currentRoom.Members.FirstOrDefault(m => m.IsSelf);
             if (self is not null) _currentRoom.Members.Remove(self);
             NotifyServer(new ChatMessage { Signal = SignalType.RoomLeave, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId });
@@ -813,6 +909,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Messages.Add(mine);
         _sfx.MessageSent();
         if (_selectedPeer is not null) _history.Append("dm-" + _selectedPeer.Peer.Id, ToStored(mine));
+        else if (!_isSelfNotes && _currentRoom is not null) _history.Append(ChannelKey(_currentRoom.Id), ToStored(mine));
         Diag.Log("MSG-TX", $"enviando ({text.Length} chars) selfNotes={_isSelfNotes} peer={_selectedPeer?.Peer.Id ?? "(nenhum)"} room={_currentRoom?.Id ?? "(nenhuma)"}");
 
         if (_isSelfNotes)
@@ -913,6 +1010,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         });
     }
 
+    // Guarda os bytes de um anexo em disco (para o histórico reabrir/baixar depois)
+    // e devolve o caminho salvo. Nome único por id + nome original.
+    private static string? SaveHistoryFile(string id, string name, byte[] data)
+    {
+        try
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "NyxarConcord", "history", "files");
+            Directory.CreateDirectory(dir);
+            string safe = string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '.' or '-' or '_' ? c : '_'));
+            if (safe.Length > 60) safe = safe[^60..];
+            string path = Path.Combine(dir, $"{id}_{safe}");
+            File.WriteAllBytes(path, data);
+            return path;
+        }
+        catch { return null; }
+    }
+
     private sealed class IncomingFile
     {
         public string Name = "";
@@ -921,6 +1037,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         public int ChunkCount;
         public string SenderName = "";
         public string SenderId = "";
+        public bool IsDm;                 // veio direcionado a mim (DM) ou é da sala
+        public string? RoomId;            // canal em que eu estava ao receber (se for de sala)
         public readonly MemoryStream Buffer = new();
     }
 
@@ -966,11 +1084,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         catch { Messages.Add(SystemMessage("Não foi possível ler o arquivo.")); return; }
 
         // A mensagem do remetente já leva os bytes, para ele poder reabrir/salvar o anexo.
-        Messages.Add(new ChatMessage
+        var fileMsg = new ChatMessage
         {
             Kind = MessageKind.Text, SenderId = SelfId, SenderName = Identity.DisplayName, IsMine = true,
-            IsFile = true, FileName = name, FileSize = size, FileData = data
-        });
+            IsFile = true, FileName = name, FileSize = size, FileData = data,
+            FilePath = SaveHistoryFile(id, name, data) // guarda no histórico (reabrir depois)
+        };
+        Messages.Add(fileMsg);
+        // Persiste o anexo no histórico da conversa/canal atual.
+        if (_selectedPeer is not null) _history.Append("dm-" + _selectedPeer.Peer.Id, ToStored(fileMsg));
+        else if (!_isSelfNotes && _currentRoom is not null) _history.Append(ChannelKey(_currentRoom.Id), ToStored(fileMsg));
+        else if (_isSelfNotes) _history.Append("self", ToStored(fileMsg));
         _sfx.FileSent();
 
         _ = Task.Run(async () =>
@@ -1012,7 +1136,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         Name = parts[1],
                         Size = long.TryParse(parts[2], out var s) ? s : 0,
                         SenderName = peer.DisplayName,
-                        SenderId = peer.Id
+                        SenderId = peer.Id,
+                        IsDm = msg.To == SelfId,          // DM se veio direcionado a mim
+                        RoomId = _currentRoom?.Id          // senão, o canal onde eu estava
                     };
                     _incoming[parts[0]] = f;
                     UpdateTransfer(true, $"Recebendo {f.Name}…", 0);
@@ -1042,13 +1168,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     byte[] data = done.Buffer.ToArray();
                     done.Buffer.Dispose();
                     UpdateTransfer(false, "", 0);
+                    string? savedPath = SaveHistoryFile(eid, done.Name, data); // guarda no histórico
                     Application.Current.Dispatcher.Invoke(() =>
                     {
-                        Messages.Add(new ChatMessage
+                        var fileMsg = new ChatMessage
                         {
                             Kind = MessageKind.Text, SenderId = done.SenderId, SenderName = done.SenderName,
-                            IsFile = true, FileName = done.Name, FileSize = data.LongLength, FileData = data
-                        });
+                            IsFile = true, FileName = done.Name, FileSize = data.LongLength, FileData = data,
+                            FilePath = savedPath
+                        };
+                        Messages.Add(fileMsg);
+                        // Persiste no histórico da conversa/canal de onde veio.
+                        if (done.IsDm) _history.Append("dm-" + done.SenderId, ToStored(fileMsg));
+                        else if (!string.IsNullOrEmpty(done.RoomId)) _history.Append(ChannelKey(done.RoomId), ToStored(fileMsg));
                         _sfx.FileReceived();
                         NotificationRequested?.Invoke(done.SenderName, $"enviou um arquivo: {done.Name}");
                     });
@@ -1267,6 +1399,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         m.IsMutedByMe = _locallyMuted.Contains(m.PeerId);
         if (_avatars.TryGetValue(m.PeerId, out var avatar)) m.AvatarPath = avatar;
         m.Volume = _peerVolume.TryGetValue(m.PeerId, out var vol) ? vol : 1.0;
+        m.IsAdmin = _currentServer?.CanModerate(m.PeerId) == true; // selo ADM
+    }
+
+    // Reaplica o selo de admin em todos os membros (quando o dono passa a ser conhecido).
+    private void RefreshAdminBadges()
+    {
+        if (_currentServer is null) return;
+        foreach (var mm in _currentServer.Members) mm.IsAdmin = _currentServer.CanModerate(mm.PeerId);
+        foreach (var ch in _currentServer.Channels)
+            foreach (var mm in ch.Members) mm.IsAdmin = _currentServer.CanModerate(mm.PeerId);
     }
 
     /// <summary>Ajusta o volume de uma pessoa (só para mim). 1 = 100%.</summary>
@@ -1529,6 +1671,38 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (IsSharingScreen)
             Messages.Add(SystemMessage($"🖥 Resolução da transmissão alterada para {height}p."));
     }
+
+    /// <summary>Ao transmitir, não exibir a própria tela (poupa CPU/GPU de quem transmite).
+    /// A transmissão para os outros continua igual — isto só oculta o seu próprio preview.</summary>
+    public bool HideSelfView
+    {
+        get => Identity.HideSelfView;
+        set
+        {
+            if (Identity.HideSelfView == value) return;
+            Identity.HideSelfView = value;
+            IdentityService.Save(Identity);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HideSelfViewLabel));
+            // Aplica na hora se já estou transmitindo.
+            if (IsSharingScreen)
+            {
+                if (value)
+                {
+                    RemoveTile(SelfId);
+                    UpdateGalleryTile(SelfId, t => t.Frame = null);
+                }
+                else
+                {
+                    GetOrCreateTile(SelfId, "Você", true); // o próximo quadro preenche
+                }
+            }
+        }
+    }
+
+    public string HideSelfViewLabel => HideSelfView ? "Voltar a ver minha tela" : "Não exibir minha tela";
+
+    public void ToggleHideSelfView() => HideSelfView = !HideSelfView;
 
     // Otimização: só envia quando a tela muda (com keyframe periódico).
     private ulong _lastFrameHash;
@@ -1918,7 +2092,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         IsShareAudioMuted = false;          // começa transmitindo o som do PC
         _voice.DesktopAudioMuted = false;
         SetMemberSharing(SelfId, true);
-        GetOrCreateTile(SelfId, "Você", true);
+        if (!HideSelfView) GetOrCreateTile(SelfId, "Você", true); // pode ocultar o próprio preview
         _inStage = true; // já mostra o palco para quem transmite
         Messages.Add(SystemMessage($"🖥 Você está compartilhando: {source.Title}"));
         NotifyServer(new ChatMessage { Signal = SignalType.ScreenShareStart, RoomId = _currentRoom!.Id });
@@ -1997,19 +2171,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // ---- Caminho principal: VÍDEO por WebRTC (VP8 P2P) ----
             // Manda TODO quadro (VP8 gera keyframe/delta sozinho); o controle de
             // congestionamento é do próprio WebRTC, então não precisa do teto de banda.
+            bool hideSelf = HideSelfView; // "não me assistir": pula o preview local (poupa CPU/GPU)
             if (readyTargets.Count > 0)
             {
                 byte[]? bgr = _capture.CaptureBgr(src, _shareMaxHeight, out int vw, out int vh);
                 if (bgr is not null)
                 {
                     _webVoice.SendVideoFrame(bgr, vw, vh);
-                    PreviewSelf(BgrToBitmap(bgr, vw, vh, vw * 3));
-                    didPreview = true;
+                    if (!hideSelf) PreviewSelf(BgrToBitmap(bgr, vw, vh, vw * 3));
+                    didPreview = true; // já cobrimos o preview (mesmo oculto)
                 }
             }
 
             // ---- Fallback JPEG: pares sem WebRTC, sessão local (P2P), ou preview quando sozinho ----
-            bool needJpeg = jpegTargets.Count > 0 || !relay || !didPreview;
+            // Quando "não me assistir" está ligado, não geramos JPEG só para o meu preview.
+            bool needJpeg = jpegTargets.Count > 0 || !relay || (!didPreview && !hideSelf);
             if (!needJpeg) { _screenSending = 0; return; }
 
             byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 38);
@@ -2033,7 +2209,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _lastFrameHash = hash;
             _lastFrameSentAt = now;
 
-            if (!didPreview) PreviewSelf(DecodeJpeg(jpeg));
+            if (!didPreview && !hideSelf) PreviewSelf(DecodeJpeg(jpeg));
 
             string b64 = Convert.ToBase64String(jpeg);
             if (relay)
@@ -2267,8 +2443,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // volta a saber que estou na sala (e me readiciona/responde).
             if (_currentRoom?.IsAudio == true && id != SelfId && _relay.IsConnected)
             {
-                var join = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId };
-                _ = _relay.SendToPeerAsync(id, join);
+                _ = _relay.SendToPeerAsync(id, RoomJoinMsg(_currentRoom));
             }
 
             // Sempre informo meu estado de microfone para quem aparece — assim o mudo
@@ -2363,6 +2538,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (msg.To == SelfId) _history.Append("dm-" + peer.Id, ToStored(msg));
             bool viewingPeer = _selectedPeer?.Peer.Id == peer.Id;
             bool viewingServerWithPeer = _currentServer?.Members.Any(m => m.PeerId == peer.Id) == true && _currentRoom is not null;
+            // Mensagem de canal (não é DM): guarda no histórico da sala atual.
+            if (msg.To != SelfId && _currentRoom is not null && viewingServerWithPeer)
+                _history.Append(ChannelKey(_currentRoom.Id), ToStored(msg));
             if (viewingPeer || viewingServerWithPeer)
                 Messages.Add(msg);
             else
@@ -2532,6 +2710,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (joined)
         {
             _peerRoom[peer.Id] = room.Id;
+            // Se estou nesta call, adoto o início mais antigo (converge o cronômetro).
+            if (_currentRoom?.Id == room.Id) AdoptCallStart(msg.CallStart);
             if (room.Members.All(m => m.PeerId != peer.Id))
             {
                 var nm = new RoomMember { PeerId = peer.Id, DisplayName = peer.DisplayName };
@@ -2546,7 +2726,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (_currentRoom?.Id == room.Id && string.IsNullOrEmpty(msg.To) && peer.Id != SelfId)
             {
                 Diag.Log("PRESENCE", $"respondendo (ack) minha presenca para {peer.DisplayName}");
-                var ack = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId };
+                var ack = RoomJoinMsg(room);
                 if (_relay.IsConnected) _ = _relay.SendToPeerAsync(peer.Id, ack);
                 else _ = _session.SendSignalAsync(peer, ack);
             }

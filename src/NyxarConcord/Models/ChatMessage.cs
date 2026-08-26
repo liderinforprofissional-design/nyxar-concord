@@ -118,6 +118,11 @@ public class ChatMessage
     [JsonPropertyName("targetId")]
     public string? TargetId { get; set; }
 
+    /// <summary>Início da call (Unix ms UTC), propagado nas mensagens de presença
+    /// para todos mostrarem o mesmo cronômetro de duração da call.</summary>
+    [JsonPropertyName("callStart")]
+    public long? CallStart { get; set; }
+
     // --- Roteamento pelo relay (Cloudflare Worker) ---
     /// <summary>Destino direto (DM). Vazio = broadcast na sala do relay.</summary>
     [JsonPropertyName("to")]
@@ -162,13 +167,26 @@ public class ChatMessage
     [JsonIgnore] public string FileName { get; set; } = "";
     [JsonIgnore] public long FileSize { get; set; }
     [JsonIgnore] public byte[]? FileData { get; set; }
+    /// <summary>Arquivo salvo no histórico em disco (carregado sob demanda ao reabrir).</summary>
+    [JsonIgnore] public string? FilePath { get; set; }
+
+    /// <summary>Existe um arquivo salvo no histórico para este anexo?</summary>
+    [JsonIgnore] public bool HasStoredFile => !string.IsNullOrEmpty(FilePath) && System.IO.File.Exists(FilePath);
+
+    /// <summary>Bytes do anexo: os que já estão em memória ou lidos do histórico.</summary>
+    public byte[]? LoadFileBytes()
+    {
+        if (FileData is not null) return FileData;
+        try { return HasStoredFile ? System.IO.File.ReadAllBytes(FilePath!) : null; }
+        catch { return null; }
+    }
 
     [JsonIgnore]
     public string FileSizeLabel => FileSize >= 1024 * 1024 ? $"{FileSize / 1024.0 / 1024:0.#} MB"
         : FileSize >= 1024 ? $"{FileSize / 1024.0:0.#} KB" : $"{FileSize} B";
 
-    /// <summary>Só há o que salvar quando o arquivo foi recebido (tem os bytes).</summary>
-    [JsonIgnore] public bool CanSaveFile => FileData is not null;
+    /// <summary>Dá para salvar quando há bytes em memória OU um arquivo guardado no histórico.</summary>
+    [JsonIgnore] public bool CanSaveFile => FileData is not null || HasStoredFile;
 
     /// <summary>Uma mensagem de texto normal (nem sistema, nem arquivo).</summary>
     [JsonIgnore] public bool IsText => !IsFile && !IsSystem;
@@ -200,10 +218,10 @@ public class ChatMessage
         return Array.IndexOf(exts, e) >= 0;
     }
 
-    // Só mostra preview de imagem/vídeo quando temos os bytes (mensagem ao vivo).
-    // No histórico (sem bytes) cai no card comum.
-    [JsonIgnore] public bool IsImageFile => IsFile && FileData is not null && HasExt(ImageExts);
-    [JsonIgnore] public bool IsVideoFile => IsFile && FileData is not null && HasExt(VideoExts);
+    // Mostra preview de imagem/vídeo quando temos os bytes (ao vivo) OU o arquivo
+    // guardado no histórico. Sem nenhum dos dois, cai no card comum.
+    [JsonIgnore] public bool IsImageFile => IsFile && (FileData is not null || HasStoredFile) && HasExt(ImageExts);
+    [JsonIgnore] public bool IsVideoFile => IsFile && (FileData is not null || HasStoredFile) && HasExt(VideoExts);
     /// <summary>Arquivo comum (nem imagem nem vídeo): mostra o card com botão "Salvar".</summary>
     [JsonIgnore] public bool IsOtherFile => IsFile && !IsImageFile && !IsVideoFile;
 
@@ -214,13 +232,15 @@ public class ChatMessage
     {
         get
         {
-            if (_imagePreview is not null || FileData is null || !IsImageFile) return _imagePreview;
+            if (_imagePreview is not null || !IsImageFile) return _imagePreview;
+            var bytes = LoadFileBytes();
+            if (bytes is null) return null;
             try
             {
                 var bmp = new System.Windows.Media.Imaging.BitmapImage();
                 bmp.BeginInit();
                 bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bmp.StreamSource = new System.IO.MemoryStream(FileData);
+                bmp.StreamSource = new System.IO.MemoryStream(bytes);
                 bmp.DecodePixelWidth = 480; // miniatura leve
                 bmp.EndInit();
                 bmp.Freeze();
@@ -238,9 +258,16 @@ public class ChatMessage
     {
         get
         {
-            if (_mediaPath is not null || FileData is null || !IsVideoFile) return _mediaPath;
+            if (_mediaPath is not null || !IsVideoFile) return _mediaPath;
             try
             {
+                // Se o arquivo já está salvo no histórico, aponta direto para ele.
+                if (FileData is null && HasStoredFile)
+                {
+                    _mediaPath = new Uri(FilePath!).AbsoluteUri;
+                    return _mediaPath;
+                }
+                if (FileData is null) return null;
                 string ext = System.IO.Path.GetExtension(FileName);
                 string p = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nyxar-{Guid.NewGuid():N}{ext}");
                 System.IO.File.WriteAllBytes(p, FileData);

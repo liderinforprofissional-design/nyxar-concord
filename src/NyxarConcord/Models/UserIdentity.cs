@@ -55,6 +55,10 @@ public sealed class UserIdentity
     [JsonPropertyName("soundsEnabled")]
     public bool SoundsEnabled { get; set; } = true;
 
+    /// <summary>Ao transmitir, não mostrar a própria tela (poupa recursos de quem transmite).</summary>
+    [JsonPropertyName("hideSelfView")]
+    public bool HideSelfView { get; set; }
+
     [JsonIgnore]
     public string ShortId => PeerId.Length >= 8 ? PeerId[..8] : PeerId;
 

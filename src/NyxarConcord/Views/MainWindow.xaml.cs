@@ -282,6 +282,13 @@ public partial class MainWindow : Window
         ResPopup.IsOpen = false;
     }
 
+    // "Não me assistir": oculta o próprio preview enquanto transmite.
+    private void HideSelfView_Click(object sender, RoutedEventArgs e)
+    {
+        _vm.ToggleHideSelfView();
+        ResPopup.IsOpen = false;
+    }
+
     // Espectador muta a transmissão de outra pessoa (localmente).
     private void GalleryMute_Click(object sender, RoutedEventArgs e)
     {
@@ -318,8 +325,11 @@ public partial class MainWindow : Window
 
     private void SaveFile_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: NyxarConcord.Models.ChatMessage { FileData: { } data } msg })
+        if (sender is FrameworkElement { DataContext: NyxarConcord.Models.ChatMessage msg } && msg.CanSaveFile)
         {
+            // Funciona tanto ao vivo (bytes na memória) quanto no histórico (arquivo salvo).
+            var data = msg.LoadFileBytes();
+            if (data is null) { MessageBox.Show("O arquivo não está mais disponível."); return; }
             var dlg = new SaveFileDialog { FileName = msg.FileName, Title = "Salvar arquivo" };
             if (dlg.ShowDialog() == true)
             {
