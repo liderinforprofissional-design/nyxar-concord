@@ -1795,6 +1795,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (string.IsNullOrEmpty(peerId) || peerId == SelfId) return;
         if (blocked) _watchBlocked.Add(peerId); else _watchBlocked.Remove(peerId);
 
+        // Parar de assistir corta também o ÁUDIO de fundo da transmissão (só a voz continua).
+        _voice.SetScreenMuted(peerId, blocked);
+
         // Reflete o estado no menu de contexto do membro (rótulo assistir/parar).
         var sm = _currentServer?.Members.FirstOrDefault(x => x.PeerId == peerId);
         if (sm is not null) sm.IsWatchBlockedByMe = blocked;
@@ -2188,7 +2191,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool needJpeg = jpegTargets.Count > 0 || !relay || (!didPreview && !hideSelf);
             if (!needJpeg) { _screenSending = 0; return; }
 
-            byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 38);
+            byte[]? jpeg = _capture.CaptureJpeg(src, _shareMaxHeight, quality: 55); // mais nítido (era 38, ficava blocado)
             if (jpeg is null) { _screenSending = 0; return; }
 
             // Só envia se a tela mudou; keyframe a cada 2s (pra quem entra no meio).
@@ -2571,7 +2574,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (msg.Signal == SignalType.ScreenAudioFrame)
         {
             if (!string.IsNullOrEmpty(msg.Text) && msg.RoomId == _currentRoom?.Id)
-                try { _voice.PlayFrom(peer.Id, Convert.FromBase64String(msg.Text), peer.Id + "#scr", markSpeaking: false); } catch { }
+                try { _voice.PlayFrom(peer.Id, Convert.FromBase64String(msg.Text), peer.Id + "#scr", markSpeaking: false, isScreen: true); } catch { }
             return;
         }
 

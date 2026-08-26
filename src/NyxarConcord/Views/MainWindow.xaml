@@ -1082,8 +1082,9 @@
                                                         </ControlTemplate.Triggers>
                                                     </ControlTemplate>
                                                 </Button.Template>
-                                                <Path Data="{StaticResource Icon.EyeOff}" Width="18" Height="18"
-                                                      Stretch="Uniform" Fill="White" />
+                                                <Path Data="{StaticResource Icon.EyeOff}" Width="17" Height="17"
+                                                      Stretch="Uniform" Fill="White"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Button>
                                             <!-- Espaço reservado quando parei de assistir: botão para voltar -->
                                             <Border Background="#DD05070E"
@@ -1157,8 +1158,9 @@
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
                                 </Button.Template>
-                                <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
-                                      Stretch="Uniform" Fill="White" />
+                                <Path Data="{StaticResource Icon.EyeOff}" Width="19" Height="19"
+                                      Stretch="Uniform" Fill="White"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Button>
                             <!-- Espaço reservado quando parei de assistir a transmissão maximizada -->
                             <Border Background="#DD05070E"
@@ -1360,8 +1362,9 @@
                                                         </ControlTemplate.Triggers>
                                                     </ControlTemplate>
                                                 </Button.Template>
-                                                <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
-                                      Stretch="Uniform" Fill="White" />
+                                                <Path Data="{StaticResource Icon.EyeOff}" Width="19" Height="19"
+                                                      Stretch="Uniform" Fill="White"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Button>
                                             <!-- Espectador: voltar a assistir (aparece quando parei de assistir) -->
                                             <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"

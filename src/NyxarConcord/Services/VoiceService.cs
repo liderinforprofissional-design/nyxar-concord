@@ -301,8 +301,10 @@ public sealed class VoiceService : IDisposable
             if (muted)
             {
                 _mutedPeers.Add(peerId);
-                // Descarta o que já estava no buffer dessa pessoa.
+                // Descarta o que já estava no buffer dessa pessoa (voz E áudio da transmissão),
+                // senão a parte já em fila continuava tocando por alguns segundos.
                 if (_inputs.TryGetValue(peerId, out var buf)) buf.ClearBuffer();
+                if (_inputs.TryGetValue(peerId + "#scr", out var scr)) scr.ClearBuffer();
             }
             else _mutedPeers.Remove(peerId);
         }
@@ -313,10 +315,26 @@ public sealed class VoiceService : IDisposable
         lock (_lock) return _mutedPeers.Contains(peerId);
     }
 
+    // Silencia APENAS o áudio de fundo da transmissão (tela) de uma pessoa — usado ao
+    // "parar de assistir": corta o som da transmissão sem mexer na voz da pessoa.
+    private readonly HashSet<string> _screenMutedPeers = new();
+    public void SetScreenMuted(string peerId, bool muted)
+    {
+        lock (_lock)
+        {
+            if (muted)
+            {
+                _screenMutedPeers.Add(peerId);
+                if (_inputs.TryGetValue(peerId + "#scr", out var scr)) scr.ClearBuffer(); // corta o que já está na fila
+            }
+            else _screenMutedPeers.Remove(peerId);
+        }
+    }
+
     /// <summary>Reproduz um quadro recebido de um participante (mixado).
     /// bufferKey permite um fluxo separado (ex.: áudio da transmissão) sem estourar a voz;
     /// o mudo é sempre decidido pelo peer real (peerId).</summary>
-    public void PlayFrom(string peerId, byte[] pcm, string? bufferKey = null, bool markSpeaking = true)
+    public void PlayFrom(string peerId, byte[] pcm, string? bufferKey = null, bool markSpeaking = true, bool isScreen = false)
     {
         // Indicador "falando" do participante remoto (não para o áudio da transmissão).
         if (markSpeaking && Rms(pcm) > SpeakRms) MarkVoice(peerId);
@@ -326,6 +344,7 @@ public sealed class VoiceService : IDisposable
         {
             if (_mixer is null) return;
             if (_mutedPeers.Contains(peerId)) return; // silenciado só para mim (voz + tela)
+            if (isScreen && _screenMutedPeers.Contains(peerId)) return; // parei de assistir: sem áudio da transmissão
             if (!_inputs.TryGetValue(key, out var buf))
             {
                 buf = new BufferedWaveProvider(_format)
