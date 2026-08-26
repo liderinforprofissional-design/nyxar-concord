@@ -58,3 +58,79 @@ Name: "{autodesktop}\Nyxar Concord"; Filename: "{app}\{#MyAppExeName}"; Tasks: d
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir o Nyxar Concord agora"; Flags: nowait postinstall skipifsilent
 ; Atualização silenciosa (auto-update): reabre o app sozinho ao terminar.
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent
+
+; ============================================================
+;  Tema escuro do instalador (combinando com o app) + barra de
+;  progresso personalizada no azul do Nyxar Concord.
+;  Cores em TColor (formato $00BBGGRR).
+; ============================================================
+[Code]
+const
+  clBgDarkest = $20120B;   // #0B1220
+  clBgDark    = $2E1A10;   // #101A2E
+  clBgCard    = $40271B;   // #1B2740
+  clAccent    = $F5961E;   // #1E96F5 (azul do app)
+  clTextW     = $FFFFFF;   // branco
+  clTextMut   = $BFA99A;   // #9AA9BF (texto suave)
+
+var
+  ProgBg, ProgFill: TPanel;
+
+procedure InitializeWizard;
+begin
+  // ---- Fundo geral escuro ----
+  WizardForm.Color := clBgDarkest;
+
+  // ---- Cabeçalho (faixa de cima com título/descrição) ----
+  WizardForm.MainPanel.Color := clBgDark;
+  WizardForm.PageNameLabel.Font.Color := clTextW;
+  WizardForm.PageDescriptionLabel.Font.Color := clTextMut;
+  // O ícone padrão do Inno tem fundo branco e destoaria do tema escuro.
+  WizardForm.WizardSmallBitmapImage.Visible := False;
+
+  // Linha divisória clara sobre o rodapé: some (fica mais limpo no escuro).
+  WizardForm.Bevel.Visible := False;
+
+  // ---- Corpo (páginas) ----
+  WizardForm.InnerNotebook.Color := clBgDarkest;
+  WizardForm.InnerPage.Color := clBgDarkest;
+  WizardForm.InstallingPage.Color := clBgDarkest;
+
+  // Textos das páginas de boas-vindas / instalação / fim
+  WizardForm.WelcomeLabel1.Font.Color := clTextW;
+  WizardForm.WelcomeLabel2.Font.Color := clTextMut;
+  WizardForm.StatusLabel.Font.Color := clTextW;
+  WizardForm.FilenameLabel.Font.Color := clTextMut;
+  WizardForm.FinishedHeadingLabel.Font.Color := clTextW;
+  WizardForm.FinishedLabel.Font.Color := clTextMut;
+
+  // ---- Barra de progresso personalizada (tema do app) ----
+  // Esconde a barra verde padrão do Windows e desenha a nossa por cima.
+  WizardForm.ProgressGauge.Visible := False;
+
+  ProgBg := TPanel.Create(WizardForm);
+  ProgBg.Parent := WizardForm.InstallingPage;
+  ProgBg.BevelOuter := bvNone;
+  ProgBg.BevelInner := bvNone;
+  ProgBg.Color := clBgCard;
+  ProgBg.Left := WizardForm.ProgressGauge.Left;
+  ProgBg.Top := WizardForm.ProgressGauge.Top;
+  ProgBg.Width := WizardForm.ProgressGauge.Width;
+  ProgBg.Height := WizardForm.ProgressGauge.Height;
+
+  ProgFill := TPanel.Create(WizardForm);
+  ProgFill.Parent := ProgBg;
+  ProgFill.BevelOuter := bvNone;
+  ProgFill.BevelInner := bvNone;
+  ProgFill.Color := clAccent;
+  ProgFill.Left := 0;
+  ProgFill.Top := 0;
+  ProgFill.Height := ProgBg.Height;
+  ProgFill.Width := 0;
+end;
+
+procedure CurInstallProgressChanged(CurProgress, MaxProgress: Integer);
+begin
+  if (ProgBg <> nil) and (ProgFill <> nil) and (MaxProgress > 0) then
+    ProgFill.Width := (ProgBg.Width * CurProgress) div MaxProgress;
+end;

@@ -974,6 +974,20 @@
                                                 <Path Data="{StaticResource Icon.EyeOff}" Width="18" Height="18"
                                                       Stretch="Uniform" Fill="White" />
                                             </Button>
+                                            <!-- Espaço reservado quando parei de assistir: botão para voltar -->
+                                            <Border Background="#DD05070E"
+                                                    Visibility="{Binding IsWatchBlocked, Converter={StaticResource BoolToVis}}">
+                                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Path Data="{StaticResource Icon.EyeOff}" Width="24" Height="24" Stretch="Uniform"
+                                                          Fill="{StaticResource Text.Muted}" HorizontalAlignment="Center" />
+                                                    <TextBlock Text="Você parou de assistir" Foreground="{StaticResource Text.Primary}"
+                                                               FontSize="11" Margin="0,8,0,0" HorizontalAlignment="Center" />
+                                                    <Button Content="Voltar a assistir" Click="ResumeWatch_Click" Tag="{Binding}"
+                                                            Cursor="Hand" Margin="0,10,0,0" Padding="12,6" BorderThickness="0"
+                                                            Background="{StaticResource Accent}" Foreground="White"
+                                                            FontWeight="SemiBold" FontSize="11" HorizontalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -1035,6 +1049,20 @@
                                 <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
                                       Stretch="Uniform" Fill="White" />
                             </Button>
+                            <!-- Espaço reservado quando parei de assistir a transmissão maximizada -->
+                            <Border Background="#DD05070E"
+                                    Visibility="{Binding MaximizedStream.IsWatchBlocked, Converter={StaticResource BoolToVis}}">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Path Data="{StaticResource Icon.EyeOff}" Width="30" Height="30" Stretch="Uniform"
+                                          Fill="{StaticResource Text.Muted}" HorizontalAlignment="Center" />
+                                    <TextBlock Text="Você parou de assistir esta transmissão" Foreground="{StaticResource Text.Primary}"
+                                               FontSize="13" Margin="0,10,0,0" HorizontalAlignment="Center" />
+                                    <Button Content="Voltar a assistir" Click="ResumeWatch_Click" Tag="{Binding MaximizedStream}"
+                                            Cursor="Hand" Margin="0,14,0,0" Padding="16,8" BorderThickness="0"
+                                            Background="{StaticResource Accent}" Foreground="White"
+                                            FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                </StackPanel>
+                            </Border>
                         </Grid>
 
                         <!-- Headset: silenciar o áudio do PC na transmissão (verde = ligado, vermelho = mudo) -->
@@ -1071,8 +1099,21 @@
                                                FontWeight="SemiBold" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <Button HorizontalAlignment="Right" Click="BackToChat_Click" Cursor="Hand"
-                                        Background="{StaticResource Badge}" Foreground="White" BorderThickness="0"
-                                        Padding="14,8" FontWeight="SemiBold" Content="Voltar ao chat" />
+                                        Foreground="White" FontWeight="SemiBold" Content="Voltar ao chat">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="bc" Background="{StaticResource Badge}" CornerRadius="12"
+                                                    Padding="16,8">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bc" Property="Opacity" Value="0.9" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
                             </Grid>
                         </Border>
                     </Grid>
@@ -1209,6 +1250,27 @@
                                                 </Button.Template>
                                                 <Path Data="{StaticResource Icon.EyeOff}" Width="20" Height="20"
                                       Stretch="Uniform" Fill="White" />
+                                            </Button>
+                                            <!-- Espectador: voltar a assistir (aparece quando parei de assistir) -->
+                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
+                                                    Cursor="Hand" Click="ResumeWatch_Click" Tag="{Binding}"
+                                                    ToolTip="Voltar a assistir"
+                                                    Visibility="{Binding ShowResumeWatch, Converter={StaticResource BoolToVis}}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="grw" Width="40" Height="40" CornerRadius="11"
+                                                                Background="{StaticResource Accent}" BorderThickness="0">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="grw" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                            </Trigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                                <Path Data="{StaticResource Icon.Eye}" Width="20" Height="20"
+                                                      Stretch="Uniform" Fill="White" />
                                             </Button>
                                         </Grid>
                                     </Border>

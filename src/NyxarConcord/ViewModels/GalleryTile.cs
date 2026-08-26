@@ -32,13 +32,23 @@ public sealed class GalleryTile : ObservableObject
     public bool IsSharing
     {
         get => _isSharing;
-        set { if (SetProperty(ref _isSharing, value)) { OnPropertyChanged(nameof(ShowAvatar)); OnPropertyChanged(nameof(ShowSelfShareControl)); OnPropertyChanged(nameof(ShowViewerMute)); } }
+        set { if (SetProperty(ref _isSharing, value)) { OnPropertyChanged(nameof(ShowAvatar)); OnPropertyChanged(nameof(ShowSelfShareControl)); OnPropertyChanged(nameof(ShowViewerMute)); OnPropertyChanged(nameof(ShowResumeWatch)); } }
+    }
+
+    /// <summary>Eu parei de assistir esta transmissão (só para mim).</summary>
+    private bool _isWatchBlocked;
+    public bool IsWatchBlocked
+    {
+        get => _isWatchBlocked;
+        set { if (SetProperty(ref _isWatchBlocked, value)) { OnPropertyChanged(nameof(ShowViewerMute)); OnPropertyChanged(nameof(ShowResumeWatch)); } }
     }
 
     /// <summary>Controle de áudio da transmissão no MEU card (quando eu transmito).</summary>
     public bool ShowSelfShareControl => IsSelf && _isSharing;
-    /// <summary>Botão para o espectador mutar a transmissão de OUTRA pessoa.</summary>
-    public bool ShowViewerMute => !IsSelf && _isSharing;
+    /// <summary>Botões do espectador (mutar/parar) — só quando estou assistindo.</summary>
+    public bool ShowViewerMute => !IsSelf && _isSharing && !_isWatchBlocked;
+    /// <summary>Botão para voltar a assistir — aparece quando parei de assistir.</summary>
+    public bool ShowResumeWatch => !IsSelf && _isSharing && _isWatchBlocked;
 
     private bool _isMuted;
     public bool IsMuted { get => _isMuted; set => SetProperty(ref _isMuted, value); }

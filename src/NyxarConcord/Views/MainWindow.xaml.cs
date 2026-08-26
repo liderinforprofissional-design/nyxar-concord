@@ -323,13 +323,25 @@ public partial class MainWindow : Window
     private void Watch_Click(object sender, RoutedEventArgs e) => _vm.WatchStream();
     private void BackToChat_Click(object sender, RoutedEventArgs e) => _vm.StopWatching();
 
-    // Espectador para de assistir UMA transmissão (botão ✕ no tile / card).
+    // Espectador alterna assistir/parar de assistir UMA transmissão (botão do olho
+    // no tile / card). O mesmo botão para e volta a assistir — o tile continua
+    // visível como espaço reservado enquanto está pausado.
     private void StopWatch_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement fe)
         {
-            if (fe.Tag is StreamTile st) _vm.StopWatchingStream(st.SharerId);
-            else if (fe.Tag is GalleryTile gt) _vm.StopWatchingStream(gt.PeerId);
+            if (fe.Tag is StreamTile st) _vm.ToggleWatchPeer(st.SharerId);
+            else if (fe.Tag is GalleryTile gt) _vm.ToggleWatchPeer(gt.PeerId);
+        }
+    }
+
+    // Botão "voltar a assistir" (galeria / espaço reservado).
+    private void ResumeWatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            if (fe.Tag is StreamTile st) _vm.ResumeWatchingStream(st.SharerId);
+            else if (fe.Tag is GalleryTile gt) _vm.ResumeWatchingStream(gt.PeerId);
         }
     }
 

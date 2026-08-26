@@ -352,11 +352,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             src.BeginInit();
             src.CacheOption = BitmapCacheOption.OnLoad;
             src.UriSource = new Uri(path);
-            src.DecodePixelWidth = 256; // miniatura suficiente para o ícone
+            src.DecodePixelWidth = 128; // miniatura pequena: só um ícone
             src.EndInit();
             src.Freeze();
 
-            var encoder = new PngBitmapEncoder();
+            // JPEG pequeno (não PNG): o avatar vira alguns KB em vez de centenas.
+            // Assim a mensagem nunca estoura o limite de tamanho do relay — que era
+            // o motivo da foto não chegar quando havia mais gente na sala.
+            var encoder = new JpegBitmapEncoder { QualityLevel = 82 };
             encoder.Frames.Add(BitmapFrame.Create(src));
             using var ms = new MemoryStream();
             encoder.Save(ms);
@@ -1232,6 +1235,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SetFriendAvatar(peer.Id, file);
     }
 
+    // Pede a foto de perfil (e a do servidor) direto para um par. Serve para
+    // RECUPERAR a foto quando o anúncio inicial não chegou — o par responde só
+    // para mim, então a foto converge mesmo depois que várias pessoas entraram.
+    private void RequestProfile(string peerId)
+    {
+        if (string.IsNullOrEmpty(peerId) || peerId == SelfId || !_relay.IsConnected) return;
+        _ = _relay.SendToPeerAsync(peerId, new ChatMessage { Signal = SignalType.ProfileRequest });
+    }
+
+    // Alguém me pediu a foto: reenvio meu perfil e, se eu já tiver a foto do
+    // servidor (mesmo não sendo o dono), reenvio também — assim a foto do servidor
+    // se espalha por qualquer um que já a tenha, não só pelo dono.
+    private void HandleProfileRequest(Peer peer)
+    {
+        if (peer.Id == SelfId) return;
+        AnnounceProfile(peer.Id);
+        if (_currentServer is not null && !string.IsNullOrEmpty(_currentServer.AvatarPath))
+            BroadcastServerPhoto(_currentServer, peer.Id);
+    }
+
     // Marca "mic mutado" (próprio, propagado) em todas as listas onde a pessoa aparece.
     private void SetMemberMuted(string peerId, bool muted)
     {
@@ -1495,6 +1518,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>Espectador para de assistir a tela desta pessoa (fecha só para ele).</summary>
     public void StopWatchingStream(string peerId) => SetWatchBlocked(peerId, true);
 
+    /// <summary>Espectador volta a assistir a tela desta pessoa.</summary>
+    public void ResumeWatchingStream(string peerId) => SetWatchBlocked(peerId, false);
+
+    /// <summary>Alterna assistir/parar de assistir pelo botão do olho no tile/card.</summary>
+    public void ToggleWatchPeer(string peerId)
+    {
+        if (string.IsNullOrEmpty(peerId)) return;
+        SetWatchBlocked(peerId, !_watchBlocked.Contains(peerId));
+    }
+
     /// <summary>Alterna assistir/parar de assistir (usado no menu do membro).</summary>
     public void ToggleWatch(RoomMember? m)
     {
@@ -1513,13 +1546,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var rm = _currentRoom?.Members.FirstOrDefault(x => x.PeerId == peerId);
         if (rm is not null) rm.IsWatchBlockedByMe = blocked;
 
-        if (blocked)
+        // Em vez de remover o tile (o que sumia com o botão de voltar), o tile
+        // permanece como um espaço reservado com o botão "voltar a assistir".
+        // Assim o espectador sempre tem como retomar a transmissão.
+        var st = Streams.FirstOrDefault(x => x.SharerId == peerId);
+        if (st is not null)
         {
-            RemoveTile(peerId);                              // tira a mini-tela do palco
-            UpdateGalleryTile(peerId, t => t.Frame = null); // some o quadro no card da galeria
-            if (_maxTile?.PeerId == peerId) MaximizedGalleryTile = null;
+            st.IsWatchBlocked = blocked;
+            if (blocked) st.Frame = null; // limpa o quadro; o próximo recria ao voltar
         }
-        // Ao voltar a assistir, o próximo quadro recebido recria a tela sozinho.
+        UpdateGalleryTile(peerId, t => { t.IsWatchBlocked = blocked; if (blocked) t.Frame = null; });
+        // Ao voltar a assistir, o próximo quadro recebido preenche a tela sozinho.
     }
 
     // ============================================================
@@ -1592,7 +1629,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 IsMuted = m.IsMuted,
                 IsMutedByMe = m.IsMutedByMe,
                 IsSpeaking = m.IsSpeaking,
-                Frame = Streams.FirstOrDefault(s => s.SharerId == m.PeerId)?.Frame
+                IsWatchBlocked = _watchBlocked.Contains(m.PeerId),
+                Frame = _watchBlocked.Contains(m.PeerId) ? null : Streams.FirstOrDefault(s => s.SharerId == m.PeerId)?.Frame
             };
             Gallery.Add(tile);
         }
@@ -1688,6 +1726,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly HashSet<string> _rtcPending = new();
     private readonly object _rtcGate = new();
 
+    // Pessoas que PARARAM de transmitir. Depois do "parou de transmitir", ainda
+    // chegam quadros de vídeo em trânsito (ou o decodificador repete o último
+    // quadro), o que recriava a tela e fazia o "parou" não valer para quem assiste.
+    // Enquanto estiver aqui, os quadros de vídeo dessa pessoa são ignorados.
+    private readonly HashSet<string> _shareStopped = new();
+
+    // Marca que uma pessoa parou de transmitir e descarta quadros pendentes dela.
+    private void MarkShareStopped(string peerId)
+    {
+        _shareStopped.Add(peerId);
+        lock (_rtcGate) { _rtcLatest.Remove(peerId); _rtcPending.Remove(peerId); }
+    }
+
     // Quadro de tela recebido por WebRTC (VP8 decodificado em BGR) -> tile.
     // IMPORTANTE: a conversão da imagem é feita AQUI (fora da thread de UI) e
     // "congelada", para não bloquear a thread do WebRTC nem sobrecarregar a UI.
@@ -1716,10 +1767,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             }
             if (frame is null) return;
             if (_watchBlocked.Contains(peerId)) return; // parei de assistir esta pessoa
-            string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
-                          ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
-            SetMemberSharing(peerId, true);
-            var tile = GetOrCreateTile(peerId, name, false);
+            if (_shareStopped.Contains(peerId)) return; // já parou de transmitir: ignora quadros atrasados
+
+            // Caminho rápido: se o tile já existe, só troca o quadro. Evita rodar
+            // buscas LINQ e SetMemberSharing a cada quadro (~30/s) na thread da UI,
+            // que era uma fonte das "travadinhas".
+            var tile = Streams.FirstOrDefault(x => x.SharerId == peerId);
+            if (tile is null)
+            {
+                string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
+                              ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
+                SetMemberSharing(peerId, true);
+                tile = GetOrCreateTile(peerId, name, false);
+            }
             if (tile is not null) tile.Frame = frame;
             UpdateGalleryTile(peerId, t => t.Frame = frame);
         });
@@ -2118,6 +2178,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // Mando minha foto de perfil para quem apareceu (para o avatar aparecer na lista).
             if (_currentServer is not null && id != SelfId && _relay.IsConnected)
                 AnnounceProfile(id);
+
+            // E, se eu ainda NÃO tenho a foto dessa pessoa (ou a do servidor), peço
+            // direto para ela. Isso recupera as fotos mesmo quando o anúncio inicial
+            // se perdeu (era o que fazia a foto sumir "a partir do terceiro usuário").
+            bool faltaAvatar = id != SelfId && !_avatars.ContainsKey(id);
+            bool faltaFotoServidor = _currentServer is not null
+                && _currentServer.OwnerId != SelfId
+                && string.IsNullOrEmpty(_currentServer.AvatarPath);
+            if (id != SelfId && (faltaAvatar || faltaFotoServidor))
+                RequestProfile(id);
         });
     }
 
@@ -2138,6 +2208,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     if (cm is not null) ch.Members.Remove(cm);
                 }
             }
+            MarkShareStopped(id);            // descarta quadros de vídeo em trânsito
+            _shareStopped.Remove(id);        // saiu de vez: sessão futura começa limpa
             SetMemberSharing(id, false);
             RemoveTile(id);
             _webVoice.PeerLeft(id);
@@ -2222,12 +2294,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     SetMemberMuted(peer.Id, msg.Text == "1");
                     break;
                 case SignalType.UserUpdate: HandleUserUpdate(peer, msg); break;
+                case SignalType.ProfileRequest: HandleProfileRequest(peer); break;
                 case SignalType.RoomJoin: HandleChannelPresence(peer, msg, true); break;
                 case SignalType.RoomLeave: HandleChannelPresence(peer, msg, false); break;
                 case SignalType.ChannelUpdate: HandleChannelUpdate(msg); break;
                 case SignalType.MemberBanned: HandleMemberBanned(msg); break;
                 case SignalType.ScreenShareStart:
                     EnsurePeerInCurrentRoom(peer, msg.RoomId);
+                    _shareStopped.Remove(peer.Id);   // transmissão nova: volta a aceitar quadros
                     SetWatchBlocked(peer.Id, false); // transmissão nova: volta a mostrar
                     SetMemberSharing(peer.Id, true);
                     GetOrCreateTile(peer.Id, peer.DisplayName, false);
@@ -2237,6 +2311,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         Messages.Add(SystemMessage($"🖥 {peer.DisplayName} começou a compartilhar a tela."));
                     break;
                 case SignalType.ScreenShareStop:
+                    MarkShareStopped(peer.Id);       // ignora quadros de vídeo atrasados dela
                     SetMemberSharing(peer.Id, false);
                     SetWatchBlocked(peer.Id, false); // limpa meu bloqueio local
                     RemoveTile(peer.Id);
@@ -2249,6 +2324,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         {
                             byte[] jpeg = Convert.FromBase64String(msg.Text);
                             EnsurePeerInCurrentRoom(peer, msg.RoomId);
+                            if (_shareStopped.Contains(peer.Id)) break; // já parou: ignora quadro atrasado
                             SetMemberSharing(peer.Id, true);
                             if (_watchBlocked.Contains(peer.Id)) break; // parei de assistir
                             var frame = DecodeJpeg(jpeg);
@@ -2340,6 +2416,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 ApplyMuteState(nm);
                 room.Members.Add(nm);
             }
+            // Se entrou alguém cuja foto eu ainda não tenho, peço direto para a pessoa.
+            if (peer.Id != SelfId && !_avatars.ContainsKey(peer.Id)) RequestProfile(peer.Id);
 
             // Se eu já estou nesta sala e o outro acabou de anunciar (broadcast),
             // respondo direto pra ele saber que eu também estou aqui.

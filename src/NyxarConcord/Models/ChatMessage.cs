@@ -59,7 +59,11 @@ public enum SignalType
     UserUpdate,
     /// <summary>Áudio do computador na transmissão (PCM/base64) — tocado num buffer
     /// separado da voz, para não estourar o áudio de quem ouve.</summary>
-    ScreenAudioFrame
+    ScreenAudioFrame,
+    /// <summary>Pedido para (re)enviar a foto de perfil e/ou a foto do servidor.
+    /// Quem recebe responde direto para o solicitante — assim a foto se recupera
+    /// mesmo que o anúncio inicial tenha se perdido.</summary>
+    ProfileRequest
 }
 
 /// <summary>
