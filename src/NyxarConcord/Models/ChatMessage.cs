@@ -63,7 +63,10 @@ public enum SignalType
     /// <summary>Pedido para (re)enviar a foto de perfil e/ou a foto do servidor.
     /// Quem recebe responde direto para o solicitante — assim a foto se recupera
     /// mesmo que o anúncio inicial tenha se perdido.</summary>
-    ProfileRequest
+    ProfileRequest,
+    /// <summary>Lista de canais (salas) do servidor — o dono envia quando cria/exclui
+    /// uma sala, para que ela apareça para todos. Canais em JSON no campo Payload.</summary>
+    ServerChannels
 }
 
 /// <summary>

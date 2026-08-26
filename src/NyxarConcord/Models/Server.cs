@@ -52,7 +52,9 @@ public sealed class Server : INotifyPropertyChanged
         }
     }
 
-    public bool CanModerate(string peerId) => peerId == OwnerId || AdminIds.Contains(peerId);
+    public bool CanModerate(string peerId)
+        => !string.IsNullOrEmpty(peerId)
+           && ((!string.IsNullOrEmpty(OwnerId) && peerId == OwnerId) || AdminIds.Contains(peerId));
 
     /// <summary>True se o usuário atual é dono/admin deste servidor (para a UI).</summary>
     [JsonIgnore]

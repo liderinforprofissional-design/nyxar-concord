@@ -21,8 +21,10 @@ namespace NyxarConcord.Services;
 /// </summary>
 public sealed class WebRtcVoice : IDisposable
 {
-    // Bitrate alvo do vídeo da tela (VP8), em kbps. ~4 Mbps p/ 720p nítido.
-    private const uint VideoTargetKbps = 4000;
+    // Bitrate alvo do vídeo da tela (VP8), em kbps. 4 Mbps era nítido, mas estourava
+    // o upload/TURN e dava "1s rodando, 1s travado" (perda de pacote → só recupera no
+    // próximo keyframe). ~1,8 Mbps cabe em conexões reais e fica fluido, ainda legível.
+    private const uint VideoTargetKbps = 1800;
 
     private readonly string _selfId;
     private readonly VoiceService _voice;

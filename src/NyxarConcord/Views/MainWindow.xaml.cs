@@ -272,6 +272,16 @@ public partial class MainWindow : Window
     private void StopShare_Click(object sender, RoutedEventArgs e) => _vm.StopScreenShare();
     private void ShareAudio_Click(object sender, RoutedEventArgs e) => _vm.ToggleShareAudio();
 
+    // Abre o menu de resolução da transmissão.
+    private void Resolution_Click(object sender, RoutedEventArgs e) => ResPopup.IsOpen = !ResPopup.IsOpen;
+
+    // Escolha de uma resolução no menu — altera AO VIVO.
+    private void ResolutionPick_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: int height }) _vm.SetShareResolution(height);
+        ResPopup.IsOpen = false;
+    }
+
     // Espectador muta a transmissão de outra pessoa (localmente).
     private void GalleryMute_Click(object sender, RoutedEventArgs e)
     {

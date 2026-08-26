@@ -470,6 +470,72 @@
                             <TextBlock Text="{Binding ConversationSubtitle}" FontSize="11"
                                        Foreground="{StaticResource Text.Muted}" />
                         </StackPanel>
+
+                        <!-- Resolução da transmissão (só quem transmite): centralizada na barra.
+                             Ícone com borda vermelha fininha + setinha; clique troca a resolução AO VIVO. -->
+                        <Button x:Name="ResBtn" Click="Resolution_Click" Cursor="Hand"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                ToolTip="Resolução da transmissão (clique para alterar)"
+                                Visibility="{Binding IsSharingScreen, Converter={StaticResource BoolToVis}}"
+                                Height="36" BorderThickness="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="resb" Background="{StaticResource Bg.Card}" CornerRadius="9" Padding="8,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <!-- Ícone com borda vermelha bem fininha -->
+                                            <Border BorderBrush="{StaticResource Badge}" BorderThickness="1" CornerRadius="5" Padding="3">
+                                                <Path Data="{StaticResource Icon.Monitor}" Width="14" Height="14" Stretch="Uniform"
+                                                      Fill="{StaticResource Text.Primary}" />
+                                            </Border>
+                                            <TextBlock Text="{Binding ShareResolutionLabel}" Foreground="{StaticResource Text.Primary}"
+                                                       FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="7,0,5,0" />
+                                            <!-- Setinha -->
+                                            <Path Data="M7,10L12,15L17,10Z" Fill="{StaticResource Text.Muted}"
+                                                  Width="11" Height="11" Stretch="Uniform" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="resb" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Popup x:Name="ResPopup" PlacementTarget="{Binding ElementName=ResBtn}" Placement="Bottom"
+                               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" VerticalOffset="6">
+                            <Border Background="{StaticResource Bg.Card}" CornerRadius="10" Padding="6"
+                                    BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                <StackPanel Width="160">
+                                    <TextBlock Text="Resolução da transmissão" Foreground="{StaticResource Text.Muted}"
+                                               FontSize="11" Margin="8,4,0,6" TextWrapping="Wrap" />
+                                    <ItemsControl ItemsSource="{Binding ResolutionOptions}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Cursor="Hand" Click="ResolutionPick_Click" Tag="{Binding}"
+                                                        HorizontalContentAlignment="Left" Margin="0,1">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border x:Name="ib" Background="Transparent" CornerRadius="8" Padding="10,7">
+                                                                <ContentPresenter />
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter TargetName="ib" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                    <TextBlock Text="{Binding StringFormat={}{0}p}" Foreground="{StaticResource Text.Primary}"
+                                                               FontWeight="SemiBold" />
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
                                     Visibility="{Binding HasRoom, Converter={StaticResource BoolToVis}}">
                             <Button ToolTip="{Binding MicToolTip}" Click="MuteMic_Click" Cursor="Hand"
@@ -1098,6 +1164,7 @@
                                     <TextBlock Text="{Binding StreamBarText}" Foreground="{StaticResource Text.Primary}"
                                                FontWeight="SemiBold" VerticalAlignment="Center" />
                                 </StackPanel>
+
                                 <Button HorizontalAlignment="Right" Click="BackToChat_Click" Cursor="Hand"
                                         Foreground="White" FontWeight="SemiBold" Content="Voltar ao chat">
                                     <Button.Template>

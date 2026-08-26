@@ -96,8 +96,9 @@ public sealed class RoomMember : INotifyPropertyChanged
         set { if (Set(ref _isMutedByMe, value)) { Raise(nameof(MuteMenuLabel)); } }
     }
 
-    /// <summary>Texto do menu de contexto para silenciar/reativar esta pessoa.</summary>
-    public string MuteMenuLabel => _isMutedByMe ? "Reativar som desta pessoa" : "Silenciar só para mim";
+    /// <summary>Texto do menu de contexto para silenciar/voltar a ouvir esta pessoa.
+    /// Deixa claro que é só para MIM — não afeta o microfone da pessoa.</summary>
+    public string MuteMenuLabel => _isMutedByMe ? "Voltar a ouvir (só para mim)" : "Silenciar só para mim";
 
     /// <summary>Eu parei de assistir a transmissão desta pessoa (só para mim).</summary>
     private bool _isWatchBlockedByMe;

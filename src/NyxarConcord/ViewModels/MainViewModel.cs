@@ -298,6 +298,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var room = new Room { Name = name, Kind = kind, Emoji = emoji, ServerId = server.Id, CanManageByMe = true };
         server.Channels.Add(room);
         SaveServers();
+        BroadcastServerChannels(server); // avisa todos os membros da sala nova
         JoinRoom(room);
         return room;
     }
@@ -307,6 +308,58 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (_currentServer?.CanModerate(SelfId) != true) return; // só o admin exclui salas
         if (_currentRoom?.Id == room.Id) { StopWatching(); LeaveCurrentChannel(); _currentRoom = null; OnPropertyChanged(nameof(CurrentRoom)); }
         _currentServer?.Channels.Remove(room);
+        SaveServers();
+        if (_currentServer is not null) BroadcastServerChannels(_currentServer); // propaga a exclusão
+    }
+
+    // Envia a lista de canais do servidor para todos os membros (após criar/excluir sala).
+    private void BroadcastServerChannels(Server server)
+    {
+        if (!_relay.IsConnected) return;
+        string payload = JsonSerializer.Serialize(server.Channels);
+        NotifyServer(new ChatMessage { Signal = SignalType.ServerChannels, ServerId = server.Id, Payload = payload });
+    }
+
+    // Recebe a lista de canais do dono e sincroniza (adiciona novas, remove excluídas).
+    private void HandleServerChannels(ChatMessage msg)
+    {
+        var server = Servers.FirstOrDefault(s => s.Id == msg.ServerId);
+        if (server is null || string.IsNullOrEmpty(msg.Payload)) return;
+        List<Room>? incoming;
+        try { incoming = JsonSerializer.Deserialize<List<Room>>(msg.Payload); }
+        catch { return; }
+        if (incoming is null) return;
+
+        // Adiciona canais novos (preservando os membros/estado dos já existentes).
+        foreach (var ch in incoming)
+        {
+            var existing = server.Channels.FirstOrDefault(c => c.Id == ch.Id);
+            if (existing is null)
+            {
+                ch.ServerId = server.Id;
+                ch.CanManageByMe = server.CanManageByMe;
+                server.Channels.Add(ch);
+            }
+            else
+            {
+                existing.Name = ch.Name;
+                existing.Emoji = ch.Emoji;
+            }
+        }
+        // Remove canais que o dono excluiu.
+        var keep = new HashSet<string>(incoming.Select(c => c.Id));
+        for (int i = server.Channels.Count - 1; i >= 0; i--)
+        {
+            if (!keep.Contains(server.Channels[i].Id))
+            {
+                if (_currentRoom?.Id == server.Channels[i].Id)
+                {
+                    StopWatching(); LeaveCurrentChannel();
+                    _currentRoom = null; OnPropertyChanged(nameof(CurrentRoom));
+                }
+                server.Channels.RemoveAt(i);
+            }
+        }
         SaveServers();
     }
 
@@ -644,6 +697,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             UpdateVoiceTargets();
             if ((_useWebRtcVoice || _useWebRtcVideo) && _relay.IsConnected)
                 _ = _webVoice.StartAsync(room.Id, ServerPeers().Select(p => p.Id).ToList());
+            EnsureRenderHook(); // liga o batimento de render (exibe vídeo sem travadas)
             _sfx.JoinCall();
             NotifyServer(new ChatMessage { Signal = SignalType.RoomJoin, RoomId = room.Id, ServerId = room.ServerId });
             AnnounceMicState(); // avisa se entrei já mutado
@@ -716,7 +770,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(CanUseGallery));
         _voiceTargets = Array.Empty<Peer>();
         _voiceRoomId = null;
+        ReleaseRenderHook();        // desliga o batimento de render (não há mais vídeo)
+        lock (_rtcGate) { _rtcLatest.Clear(); _rtcDirty.Clear(); }
         RefreshServerVoiceBadges(); // some o selo do servidor que acabei de deixar
+    }
+
+    // Desliga o batimento de renderização quando não há mais vídeo a exibir.
+    private void ReleaseRenderHook()
+    {
+        if (!_renderHooked) return;
+        _renderHooked = false;
+        System.Windows.Media.CompositionTarget.Rendering -= OnRenderTick;
     }
 
     public void LeaveCall()
@@ -1449,6 +1513,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _shareMaxHeight = 720;
     private bool _inStage;
 
+    /// <summary>Opções de resolução da transmissão (altura em pixels). Máximo 720p.</summary>
+    public int[] ResolutionOptions { get; } = { 720, 480, 360 };
+
+    /// <summary>Rótulo da resolução atual da transmissão (ex.: "720p").</summary>
+    public string ShareResolutionLabel => $"{_shareMaxHeight}p";
+
+    /// <summary>Altera a resolução da transmissão — inclusive AO VIVO, durante a
+    /// transmissão (o laço de captura lê este valor a cada quadro).</summary>
+    public void SetShareResolution(int height)
+    {
+        if (height <= 0 || height == _shareMaxHeight) return;
+        _shareMaxHeight = height;
+        OnPropertyChanged(nameof(ShareResolutionLabel));
+        if (IsSharingScreen)
+            Messages.Add(SystemMessage($"🖥 Resolução da transmissão alterada para {height}p."));
+    }
+
     // Otimização: só envia quando a tela muda (com keyframe periódico).
     private ulong _lastFrameHash;
     private DateTime _lastFrameSentAt;
@@ -1723,8 +1804,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // pessoa e enfileira no máximo uma atualização de UI por vez — assim não acumula
     // fila nem trava se a UI ficar um pouco atrás (fim das "pequenas travadas").
     private readonly Dictionary<string, System.Windows.Media.Imaging.BitmapSource> _rtcLatest = new();
-    private readonly HashSet<string> _rtcPending = new();
+    private readonly HashSet<string> _rtcDirty = new();   // peers com quadro novo a exibir
     private readonly object _rtcGate = new();
+    private bool _renderHooked;
 
     // Pessoas que PARARAM de transmitir. Depois do "parou de transmitir", ainda
     // chegam quadros de vídeo em trânsito (ou o decodificador repete o último
@@ -1736,7 +1818,48 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void MarkShareStopped(string peerId)
     {
         _shareStopped.Add(peerId);
-        lock (_rtcGate) { _rtcLatest.Remove(peerId); _rtcPending.Remove(peerId); }
+        lock (_rtcGate) { _rtcLatest.Remove(peerId); _rtcDirty.Remove(peerId); }
+    }
+
+    // Liga o "batimento" de renderização (sincronizado com o refresh da tela).
+    // Exibir os quadros num ritmo estável — em vez de assim que chegam pela rede,
+    // que vêm em rajadas — é o que elimina as micro-travadas da transmissão.
+    private void EnsureRenderHook()
+    {
+        if (_renderHooked) return;
+        _renderHooked = true;
+        System.Windows.Media.CompositionTarget.Rendering += OnRenderTick;
+    }
+
+    private void OnRenderTick(object? sender, EventArgs e)
+    {
+        // Pega os quadros novos numa passada curta sob lock; aplica fora do lock.
+        (string peer, System.Windows.Media.Imaging.BitmapSource frame)[] batch;
+        lock (_rtcGate)
+        {
+            if (_rtcDirty.Count == 0) return;
+            var list = new List<(string, System.Windows.Media.Imaging.BitmapSource)>(_rtcDirty.Count);
+            foreach (var pid in _rtcDirty)
+                if (_rtcLatest.TryGetValue(pid, out var f)) list.Add((pid, f));
+            _rtcDirty.Clear();
+            batch = list.ToArray();
+        }
+
+        foreach (var (peerId, frame) in batch)
+        {
+            if (_watchBlocked.Contains(peerId)) continue;   // parei de assistir
+            if (_shareStopped.Contains(peerId)) continue;    // já parou de transmitir
+            var tile = Streams.FirstOrDefault(x => x.SharerId == peerId);
+            if (tile is null)
+            {
+                string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
+                              ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
+                SetMemberSharing(peerId, true);
+                tile = GetOrCreateTile(peerId, name, false);
+            }
+            if (tile is not null) tile.Frame = frame;
+            UpdateGalleryTile(peerId, t => t.Frame = frame);
+        }
     }
 
     // Quadro de tela recebido por WebRTC (VP8 decodificado em BGR) -> tile.
@@ -1748,41 +1871,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var img = BgrToBitmap(bgr, w, h, stride); // fora da UI, já frozen
         if (img is null) return;
 
-        bool queue;
+        // Só guarda o quadro mais recente. A EXIBIÇÃO acontece no OnRenderTick,
+        // num ritmo estável sincronizado com a tela — assim as rajadas da rede
+        // não viram micro-travadas na imagem.
         lock (_rtcGate)
         {
-            _rtcLatest[peerId] = img;      // só o quadro mais novo importa
-            queue = _rtcPending.Add(peerId); // true se ainda não havia um pendente
+            _rtcLatest[peerId] = img;
+            _rtcDirty.Add(peerId);
         }
-        if (!queue) return; // já há uma atualização a caminho; esta some (mostra a mais nova)
-
-        Application.Current.Dispatcher.BeginInvoke(() =>
-        {
-            System.Windows.Media.Imaging.BitmapSource? frame;
-            lock (_rtcGate)
-            {
-                _rtcPending.Remove(peerId);
-                _rtcLatest.TryGetValue(peerId, out frame);
-                _rtcLatest.Remove(peerId);
-            }
-            if (frame is null) return;
-            if (_watchBlocked.Contains(peerId)) return; // parei de assistir esta pessoa
-            if (_shareStopped.Contains(peerId)) return; // já parou de transmitir: ignora quadros atrasados
-
-            // Caminho rápido: se o tile já existe, só troca o quadro. Evita rodar
-            // buscas LINQ e SetMemberSharing a cada quadro (~30/s) na thread da UI,
-            // que era uma fonte das "travadinhas".
-            var tile = Streams.FirstOrDefault(x => x.SharerId == peerId);
-            if (tile is null)
-            {
-                string name = _currentServer?.Members.FirstOrDefault(m => m.PeerId == peerId)?.DisplayName
-                              ?? Peers.FirstOrDefault(p => p.Peer.Id == peerId)?.DisplayName ?? "Usuário";
-                SetMemberSharing(peerId, true);
-                tile = GetOrCreateTile(peerId, name, false);
-            }
-            if (tile is not null) tile.Frame = frame;
-            UpdateGalleryTile(peerId, t => t.Frame = frame);
-        });
     }
 
     private static System.Windows.Media.Imaging.BitmapSource? BgrToBitmap(byte[] bgr, int w, int h, int stride)
@@ -1817,6 +1913,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!InCall) return Task.CompletedTask;
         _shareSource = source;
         _shareMaxHeight = maxHeight;
+        OnPropertyChanged(nameof(ShareResolutionLabel));
         IsSharingScreen = true;
         IsShareAudioMuted = false;          // começa transmitindo o som do PC
         _voice.DesktopAudioMuted = false;
@@ -1844,16 +1941,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // A transmissão tem um TETO DE BANDA para não estourar o upload de quem
     // transmite (senão trava a voz e dá lag/perda de pacote no jogo).
     private int _screenSending; // 0 = livre, 1 = enviando
-    private long _bytesThisSec;
-    private DateTime _secStart;
-    // Teto de banda da tela: protege o jogo/voz. Alvo de fps é 30, mas se a cena for
-    // pesada o teto derruba quadros sozinho (fica fluido no que a rede aguentar).
-    private const int ScreenMaxBytesPerSec = 450_000;
+    // Teto de banda da tela (fallback JPEG): protege a voz. Antes era uma janela fixa
+    // de 1 segundo — enchia no começo do segundo e BLOQUEAVA o resto, dando "1s rodando,
+    // 1s travado". Agora o controle é SUAVE (leaky bucket): cada quadro só sai quando já
+    // passou tempo suficiente para pagar os bytes dele nesta taxa, sem rajadas.
+    // ~1,7 MB/s cabe 30 fps a 720p (q38 ~50 KB/quadro). Se a rede não aguentar, o
+    // "descarta se ocupado" (lowPriority) segura sozinho — a voz continua com prioridade.
+    private const int ScreenMaxBytesPerSec = 1_700_000;
 
     private async Task ShareLoopAsync(string roomId, CancellationToken token)
     {
-        const int frameMs = 33; // alvo ~30 fps; o teto de banda + "descarta se ocupado" seguram quando precisa
-        _bytesThisSec = 0; _secStart = DateTime.UtcNow;
+        const int frameMs = 33; // ~30 fps: movimento fluido; o teto de banda suave segura a rede fraca
         var sw = new System.Diagnostics.Stopwatch();
         while (!token.IsCancellationRequested && IsSharingScreen)
         {
@@ -1923,14 +2021,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             bool keyframe = (DateTime.UtcNow - _lastFrameSentAt).TotalSeconds >= 2;
             if (!changed && !keyframe) { _screenSending = 0; return; }
 
-            // Teto de banda (só o JPEG usa; o WebRTC se auto-regula).
+            // Pacing SUAVE (leaky bucket): envia este quadro só quando já passou tempo
+            // suficiente para "pagar" os bytes dele na taxa alvo. Quadros grandes esperam
+            // um pouco mais; quadros pequenos passam mais rápido — sem a rajada/congela.
+            // O keyframe (tela parada, para quem entra no meio) sempre passa.
             var now = DateTime.UtcNow;
-            if ((now - _secStart).TotalSeconds >= 1) { _secStart = now; _bytesThisSec = 0; }
-            if (_bytesThisSec + jpeg.Length > ScreenMaxBytesPerSec) { _screenSending = 0; return; }
-            _bytesThisSec += jpeg.Length;
+            double gapMs = Math.Min((now - _lastFrameSentAt).TotalMilliseconds, 400); // evita "estourar" após pausa
+            double affordableBytes = ScreenMaxBytesPerSec * gapMs / 1000.0;
+            if (changed && jpeg.Length > affordableBytes) { _screenSending = 0; return; }
 
             _lastFrameHash = hash;
-            _lastFrameSentAt = DateTime.UtcNow;
+            _lastFrameSentAt = now;
 
             if (!didPreview) PreviewSelf(DecodeJpeg(jpeg));
 
@@ -1987,8 +2088,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // Formato binário compacto (ids = 16 bytes em vez de 32 hex + sem JSON).
         using var ms = new System.IO.MemoryStream();
         using var w = new System.IO.BinaryWriter(ms, System.Text.Encoding.UTF8);
-        w.Write((byte)1); // versão
+        w.Write((byte)2); // versão 2: agora carrega o dono do servidor
         w.Write(GuidBytes(_currentServer.Id));
+        w.Write(GuidBytes(_currentServer.OwnerId)); // dono — para quem entra saber quem manda
         CodeWriteStr(w, _currentServer.Name);
         var chans = _currentServer.Channels.Take(255).ToList();
         w.Write((byte)chans.Count);
@@ -2040,15 +2142,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             else if (code.StartsWith("NYX-", StringComparison.OrdinalIgnoreCase))
                 code = code["NYX-".Length..];
 
-            string id; string name; var channels = new List<Room>();
+            string id; string name; string ownerId = ""; var channels = new List<Room>();
             byte[] data = FromBase64Url(code);
 
-            if (data.Length > 0 && data[0] == 1) // formato binário compacto (novo)
+            if (data.Length > 0 && (data[0] == 1 || data[0] == 2)) // formato binário compacto
             {
                 using var ms = new System.IO.MemoryStream(data);
                 using var r = new System.IO.BinaryReader(ms, System.Text.Encoding.UTF8);
-                r.ReadByte(); // versão
+                byte ver = r.ReadByte(); // versão
                 id = BytesGuid(r.ReadBytes(16));
+                if (ver >= 2) ownerId = BytesGuid(r.ReadBytes(16)); // dono do servidor
                 name = CodeReadStr(r);
                 int count = r.ReadByte();
                 for (int i = 0; i < count; i++)
@@ -2073,7 +2176,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var server = Servers.FirstOrDefault(s => s.Id == id);
             if (server is null)
             {
-                server = new Server { Id = id, Name = name, OwnerId = "" };
+                // OwnerId vem do código (v2): quem entra sabe que NÃO é o dono, então
+                // não pode criar/excluir salas. Guid.Empty ("000...0") vira "" (sem dono).
+                if (ownerId == Guid.Empty.ToString("N")) ownerId = "";
+                server = new Server { Id = id, Name = name, OwnerId = ownerId };
                 foreach (var ch in channels) server.Channels.Add(ch);
                 EnsureSelfServerMember(server);
                 Servers.Add(server);
@@ -2163,9 +2269,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 var join = new ChatMessage { Signal = SignalType.RoomJoin, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId };
                 _ = _relay.SendToPeerAsync(id, join);
-                // e informo meu estado de microfone para ele mostrar o ícone certo
-                _ = _relay.SendToPeerAsync(id, new ChatMessage { Signal = SignalType.MicState, Text = _isMicMuted ? "1" : "0" });
             }
+
+            // Sempre informo meu estado de microfone para quem aparece — assim o mudo
+            // que EU escolhi é sempre visível para os outros (e ninguém "reativa" ele).
+            if (_currentServer is not null && id != SelfId && _relay.IsConnected)
+                _ = _relay.SendToPeerAsync(id, new ChatMessage { Signal = SignalType.MicState, Text = _isMicMuted ? "1" : "0" });
 
             // O dono é a fonte da verdade da foto: quando alguém aparece no servidor,
             // manda a foto atual direto para ele (cobre entrada por código e reconexão).
@@ -2173,6 +2282,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 && id != SelfId && !string.IsNullOrEmpty(_currentServer.AvatarPath))
             {
                 BroadcastServerPhoto(_currentServer, id);
+            }
+
+            // Sou o dono: mando a lista atual de canais para quem apareceu, para que
+            // as salas criadas depois do convite também apareçam para ele.
+            if (_currentServer is not null && _currentServer.OwnerId == SelfId
+                && id != SelfId && _relay.IsConnected)
+            {
+                string payload = JsonSerializer.Serialize(_currentServer.Channels);
+                _ = _relay.SendToPeerAsync(id, new ChatMessage
+                {
+                    Signal = SignalType.ServerChannels, ServerId = _currentServer.Id, Payload = payload
+                });
             }
 
             // Mando minha foto de perfil para quem apareceu (para o avatar aparecer na lista).
@@ -2298,6 +2419,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 case SignalType.RoomJoin: HandleChannelPresence(peer, msg, true); break;
                 case SignalType.RoomLeave: HandleChannelPresence(peer, msg, false); break;
                 case SignalType.ChannelUpdate: HandleChannelUpdate(msg); break;
+                case SignalType.ServerChannels: HandleServerChannels(msg); break;
                 case SignalType.MemberBanned: HandleMemberBanned(msg); break;
                 case SignalType.ScreenShareStart:
                     EnsurePeerInCurrentRoom(peer, msg.RoomId);
