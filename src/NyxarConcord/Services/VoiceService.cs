@@ -324,11 +324,17 @@ public sealed class VoiceService : IDisposable
         {
             if (muted)
             {
-                _screenMutedPeers.Add(peerId);
-                if (_inputs.TryGetValue(peerId + "#scr", out var scr)) scr.ClearBuffer(); // corta o que já está na fila
+                // Add só retorna true na TRANSIÇÃO (pode ser chamado a cada quadro sem custo).
+                if (_screenMutedPeers.Add(peerId) && _inputs.TryGetValue(peerId + "#scr", out var scr))
+                    scr.ClearBuffer(); // corta o que já está na fila
             }
             else _screenMutedPeers.Remove(peerId);
         }
+    }
+
+    public bool IsScreenMuted(string peerId)
+    {
+        lock (_lock) return _screenMutedPeers.Contains(peerId);
     }
 
     /// <summary>Reproduz um quadro recebido de um participante (mixado).

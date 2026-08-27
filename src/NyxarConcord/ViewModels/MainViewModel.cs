@@ -1826,6 +1826,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (!HasStreams) return;
         _inStage = true;
+        SetAllScreenAudio(false); // entrando no palco: ouço o áudio das transmissões
         RaiseStageState();
     }
 
@@ -1833,8 +1834,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         _inStage = false;
         MaximizedStream = null;
+        SetAllScreenAudio(true);  // saindo do palco: muta o áudio das transmissões
         RaiseStageState();
         StoppedWatching?.Invoke();
+    }
+
+    // Muta/ativa o áudio da transmissão de todos os que estão transmitindo agora.
+    private void SetAllScreenAudio(bool muted)
+    {
+        if (_currentRoom is null) return;
+        foreach (var m in _currentRoom.Members)
+            if (!m.IsSelf && m.IsSharingScreen) _voice.SetScreenMuted(m.PeerId, muted);
     }
 
     public void ToggleMaximize(StreamTile? tile)
@@ -1933,19 +1943,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void ToggleGalleryMaximize(GalleryTile? tile)
     {
         if (tile is null || !tile.IsSharing) return;
-        MaximizedGalleryTile = _maxTile != tile ? tile : null;
+        if (_maxTile != tile) WatchGalleryTile(tile);   // abrir = assistir (com áudio)
+        else RestoreGallery();                          // fechar = parar (muta o áudio)
     }
 
     /// <summary>Botão "Assistir" no card da galeria: só aqui a transmissão abre
-    /// (antes ela carregava sozinha). Garante que os quadros fluam e maximiza a tela.</summary>
+    /// (antes ela carregava sozinha). Libera o áudio e maximiza a tela.</summary>
     public void WatchGalleryTile(GalleryTile? tile)
     {
         if (tile is null || !tile.IsSharing) return;
-        ResumeWatchingStream(tile.PeerId); // libera vídeo + áudio da transmissão
-        MaximizedGalleryTile = tile;       // abre a transmissão em tela cheia do card
+        // Muta o áudio de quem eu estava assistindo antes (se era outra pessoa).
+        if (_maxTile is not null && _maxTile != tile && !_maxTile.IsSelf)
+            _voice.SetScreenMuted(_maxTile.PeerId, true);
+        MaximizedGalleryTile = tile;                    // marca como "assistindo" ANTES (evita corrida com o mudo)
+        ResumeWatchingStream(tile.PeerId);              // libera vídeo
+        if (!tile.IsSelf) _voice.SetScreenMuted(tile.PeerId, false); // e o áudio da transmissão
     }
 
-    public void RestoreGallery() => MaximizedGalleryTile = null;
+    public void RestoreGallery()
+    {
+        var t = _maxTile;
+        MaximizedGalleryTile = null;
+        // Parei de assistir: muta o áudio da transmissão que estava aberta.
+        if (t is not null && !t.IsSelf) _voice.SetScreenMuted(t.PeerId, true);
+    }
 
     private void RaiseGalleryState()
     {
@@ -2693,7 +2714,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (msg.Signal == SignalType.ScreenAudioFrame)
         {
             if (!string.IsNullOrEmpty(msg.Text) && msg.RoomId == _currentRoom?.Id)
+            {
+                // Se NÃO estou assistindo essa pessoa (não estou no palco e o card dela
+                // não está maximizado na galeria), muto o áudio da transmissão — assim
+                // não sai som antes de clicar em "Assistir". O "assistir" desmuta.
+                bool watching = _inStage || _maxTile?.PeerId == peer.Id;
+                if (!watching) _voice.SetScreenMuted(peer.Id, true);
                 try { _voice.PlayFrom(peer.Id, Convert.FromBase64String(msg.Text), peer.Id + "#scr", markSpeaking: false, isScreen: true); } catch { }
+            }
             return;
         }
 
@@ -2727,6 +2755,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     SetWatchBlocked(peer.Id, false); // transmissão nova: volta a mostrar
                     SetMemberSharing(peer.Id, true);
                     GetOrCreateTile(peer.Id, peer.DisplayName, false);
+                    // Áudio da transmissão começa MUTADO até a pessoa clicar em "Assistir"
+                    // (a não ser que eu já esteja no palco assistindo).
+                    _voice.SetScreenMuted(peer.Id, !_inStage);
                     RaiseStageState();
                     _sfx.ScreenShare();
                     if (_currentRoom?.Id == msg.RoomId)
