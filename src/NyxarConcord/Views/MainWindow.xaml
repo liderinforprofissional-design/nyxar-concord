@@ -1406,6 +1406,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid Margin="6,5" Cursor="Hand" Background="Transparent"
+                                      Opacity="{Binding MemberOpacity}"
                                       MouseLeftButtonUp="Member_Click"
                                       ContextMenuOpening="Member_ContextMenuOpening">
                                     <Grid.ColumnDefinitions>
@@ -1461,7 +1462,7 @@
                                     <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding DisplayName}" Foreground="{StaticResource Text.Primary}"
                                                    FontSize="13" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Role}" Foreground="{StaticResource Text.Muted}" FontSize="10" />
+                                        <TextBlock Text="{Binding PresenceLabel}" Foreground="{StaticResource Text.Muted}" FontSize="10" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                         <!-- Selo de administrador do servidor -->

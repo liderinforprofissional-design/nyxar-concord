@@ -270,6 +270,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _isSelfNotes = false;
         ClearStreams();
         EnsureSelfServerMember(server);
+        LoadSavedMembers(server); // lista também quem está offline
         _selectedPeer = null;
         OnPropertyChanged(nameof(SelectedPeer));
         CurrentRoom = null;
@@ -398,6 +399,72 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     private void SaveServers() => _serverStore.Save(Servers);
+
+    // ---- Roster do servidor (lista todos: online e offline) ----
+
+    // Carrega no painel os membros já conhecidos (offline) ao abrir o servidor.
+    private void LoadSavedMembers(Server server)
+    {
+        foreach (var sm in server.SavedMembers)
+        {
+            if (sm.PeerId == SelfId) continue;
+            if (server.Members.Any(m => m.PeerId == sm.PeerId)) continue;
+            var m = new RoomMember
+            {
+                PeerId = sm.PeerId, DisplayName = sm.DisplayName, AvatarPath = sm.AvatarPath, IsOnline = false
+            };
+            ApplyMuteState(m);
+            m.IsOnline = false;
+            server.Members.Add(m);
+        }
+    }
+
+    // Guarda/atualiza o membro no roster persistido (para aparecer offline depois).
+    private void RememberMember(Server server, string id, string name, string avatar)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        var sm = server.SavedMembers.FirstOrDefault(x => x.PeerId == id);
+        if (sm is null)
+        {
+            server.SavedMembers.Add(new SavedMember { PeerId = id, DisplayName = name ?? "", AvatarPath = avatar ?? "" });
+            SaveServers();
+        }
+        else if ((!string.IsNullOrEmpty(name) && sm.DisplayName != name) ||
+                 (!string.IsNullOrEmpty(avatar) && sm.AvatarPath != avatar))
+        {
+            if (!string.IsNullOrEmpty(name)) sm.DisplayName = name;
+            if (!string.IsNullOrEmpty(avatar)) sm.AvatarPath = avatar;
+            SaveServers();
+        }
+    }
+
+    // Marca um membro como ONLINE no servidor atual (cria a entrada se faltar) e o
+    // registra no roster. Usado quando alguém aparece (Hello/entrada/presença).
+    private void MarkServerMemberOnline(string id, string name)
+    {
+        if (_currentServer is null || id == SelfId || string.IsNullOrEmpty(id)) return;
+        var m = _currentServer.Members.FirstOrDefault(x => x.PeerId == id);
+        if (m is null)
+        {
+            m = new RoomMember { PeerId = id, DisplayName = string.IsNullOrEmpty(name) ? "Usuário" : name };
+            ApplyMuteState(m);
+            _currentServer.Members.Add(m);
+        }
+        else
+        {
+            m.IsOnline = true;
+            if (!string.IsNullOrEmpty(name)) m.DisplayName = name;
+        }
+        RememberMember(_currentServer, id, m.DisplayName, m.AvatarPath);
+        OnPropertyChanged(nameof(ServerMembers));
+    }
+
+    // Marca um membro como OFFLINE (não remove do painel — continua listado).
+    private void MarkServerMemberOffline(string id)
+    {
+        var m = _currentServer?.Members.FirstOrDefault(x => x.PeerId == id);
+        if (m is not null && !m.IsSelf) m.IsOnline = false;
+    }
 
     public void ChangeServerPhoto(Server server, string path)
     {
@@ -1449,6 +1516,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         foreach (var m in AllMemberInstances(peer.Id)) m.AvatarPath = file;
         UpdateGalleryTile(peer.Id, t => t.AvatarPath = file);
         SetFriendAvatar(peer.Id, file);
+        // Atualiza a foto no roster salvo (para o membro aparecer com foto mesmo offline).
+        if (_currentServer is not null) RememberMember(_currentServer, peer.Id, "", file);
     }
 
     // Pede a foto de perfil (e a do servidor) direto para um par. Serve para
@@ -2481,12 +2550,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (pvm is null) { Peers.Add(new PeerViewModel(peer)); _sfx.UserJoined(); }
             else { pvm.IsOnline = true; pvm.Refresh(); }
 
-            if (_currentServer is not null && _currentServer.Members.All(m => m.PeerId != id))
+            if (_currentServer is not null)
             {
-                var nm = new RoomMember { PeerId = id, DisplayName = peer.DisplayName };
-                ApplyMuteState(nm);
-                _currentServer.Members.Add(nm);
-                OnPropertyChanged(nameof(ServerMembers));
+                MarkServerMemberOnline(id, peer.DisplayName); // aparece como online no painel
                 if (_currentRoom is not null) UpdateVoiceTargets();
                 if (_currentRoom?.IsAudio == true && (_useWebRtcVoice || _useWebRtcVideo))
                     _ = _webVoice.PeerJoinedAsync(id);
@@ -2550,8 +2616,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _peerRoom.Remove(id);
             if (_currentServer is not null)
             {
-                var sm = _currentServer.Members.FirstOrDefault(m => m.PeerId == id);
-                if (sm is not null) _currentServer.Members.Remove(sm);
+                // No painel do servidor: marca OFFLINE (continua listado), não remove.
+                MarkServerMemberOffline(id);
+                // Nas salas de voz: remove (saiu da call).
                 foreach (var ch in _currentServer.Channels)
                 {
                     var cm = ch.Members.FirstOrDefault(x => x.PeerId == id);
@@ -2765,6 +2832,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (joined)
         {
             _peerRoom[peer.Id] = room.Id;
+            _peerLastSeen[peer.Id] = DateTime.UtcNow;
+            if (peer.Id != SelfId) MarkServerMemberOnline(peer.Id, peer.DisplayName); // roster online
             // Se estou nesta call, adoto o início mais antigo (converge o cronômetro).
             if (_currentRoom?.Id == room.Id) AdoptCallStart(msg.CallStart);
             if (room.Members.All(m => m.PeerId != peer.Id))
@@ -2826,8 +2895,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void PrunePresence()
     {
         if (_currentServer is null) return;
+        // Se MINHA conexão está caída, eu não recebo os heartbeats — então NÃO removo
+        // ninguém (senão a lista esvaziaria por culpa da minha rede). A reconexão cuida.
+        if (!_relay.IsConnected) return;
         var now = DateTime.UtcNow;
-        const double TimeoutSec = 8; // ~4 heartbeats perdidos
+        const double TimeoutSec = 12; // margem folgada (heartbeat = 2s)
         bool changed = false;
 
         foreach (var ch in _currentServer.Channels)
@@ -2844,12 +2916,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 }
                 if ((now - seen).TotalSeconds <= TimeoutSec) continue;
 
-                // Sem sinal há tempo demais: trata como saída.
+                // Sem sinal há tempo demais: saiu da sala de voz (e fica offline no painel).
                 ch.Members.RemoveAt(i);
                 if (_peerRoom.TryGetValue(m.PeerId, out var r) && r == ch.Id) _peerRoom.Remove(m.PeerId);
                 if (_currentRoom?.Id == ch.Id) { SetMemberSharing(m.PeerId, false); RemoveTile(m.PeerId); }
+                MarkServerMemberOffline(m.PeerId);
                 changed = true;
-                Diag.Log("PRESENCE", $"removido por timeout: {m.DisplayName}/{m.PeerId}");
+                Diag.Log("PRESENCE", $"saiu da voz por timeout: {m.DisplayName}/{m.PeerId}");
             }
         }
 

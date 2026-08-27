@@ -59,6 +59,7 @@ public sealed class WorkerRelay : IDisposable
         _room = room;
         _cts = new CancellationTokenSource();
         _ws = new ClientWebSocket();
+        _ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15); // detecta queda mais rápido
         var uri = new Uri($"{WsBase}?room={Uri.EscapeDataString(room)}&peer={Uri.EscapeDataString(_selfId)}");
         Diag.Log("RELAY", $"Conectando à sala do relay: {room}");
         try
@@ -98,7 +99,10 @@ public sealed class WorkerRelay : IDisposable
 
     private async Task SendAsync(ChatMessage m, bool lowPriority = false)
     {
-        if (_ws is not { State: WebSocketState.Open }) { TriggerReconnect(); return; }
+        // Não dispara reconexão aqui: durante estados transitórios do socket isso
+        // gerava reconexões falsas e conexões duplicadas no relay (os pares se
+        // "expulsavam"). A reconexão é decidida só quando o ReceiveLoop cai de fato.
+        if (_ws is not { State: WebSocketState.Open }) return;
         // Loga tudo, menos o que é muito frequente (voz/tela/pedaços de arquivo),
         // mas conta a mídia periodicamente pra sabermos se ela está saindo.
         if (m.Signal is SignalType.VoiceFrame or SignalType.ScreenAudioFrame) { if (++_txVoice % 100 == 0) Diag.Log("MEDIA-TX", $"voz enviada x{_txVoice}"); }
@@ -115,7 +119,7 @@ public sealed class WorkerRelay : IDisposable
         }
         else await _sendLock.WaitAsync();
         try { await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None); }
-        catch { TriggerReconnect(); }
+        catch { /* o ReceiveLoop detecta a queda e reconecta */ }
         finally { _sendLock.Release(); }
     }
 
@@ -171,6 +175,7 @@ public sealed class WorkerRelay : IDisposable
 
                     var cts = new CancellationTokenSource();
                     var ws = new ClientWebSocket();
+                    ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(15);
                     var uri = new Uri($"{WsBase}?room={Uri.EscapeDataString(_room!)}&peer={Uri.EscapeDataString(_selfId)}");
                     Diag.Log("RELAY", "Tentando reconectar ao relay…");
                     await ws.ConnectAsync(uri, cts.Token);

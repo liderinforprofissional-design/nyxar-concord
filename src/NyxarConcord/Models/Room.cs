@@ -94,6 +94,18 @@ public sealed class RoomMember : INotifyPropertyChanged
     private bool _isAdmin;
     public bool IsAdmin { get => _isAdmin; set => Set(ref _isAdmin, value); }
 
+    /// <summary>Está online agora (no painel de membros; offline aparece esmaecido).</summary>
+    private bool _isOnline = true;
+    public bool IsOnline
+    {
+        get => _isOnline;
+        set { if (Set(ref _isOnline, value)) { Raise(nameof(MemberOpacity)); Raise(nameof(PresenceLabel)); } }
+    }
+    /// <summary>Esmaece o membro quando offline.</summary>
+    public double MemberOpacity => _isOnline ? 1.0 : 0.45;
+    /// <summary>Rótulo de presença curto.</summary>
+    public string PresenceLabel => IsSelf ? "você" : (_isOnline ? "online" : "offline");
+
     /// <summary>Volume desta pessoa para mim (1 = 100%). Ajustável no menu de contexto.</summary>
     private double _volume = 1.0;
     public double Volume { get => _volume; set => Set(ref _volume, value); }

@@ -38,6 +38,10 @@ public sealed class Server : INotifyPropertyChanged
     [JsonIgnore]
     public ObservableCollection<RoomMember> Members { get; } = new();
 
+    /// <summary>Roster conhecido do servidor (persistido) — para listar também quem
+    /// está offline. Guarda id, nome e foto de cada participante já visto.</summary>
+    public List<SavedMember> SavedMembers { get; set; } = new();
+
     /// <summary>Iniciais para o ícone quando não há foto.</summary>
     [JsonIgnore]
     public string Initials
@@ -68,4 +72,12 @@ public sealed class Server : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
         return true;
     }
+}
+
+/// <summary>Entrada persistida do roster de um servidor (para listar offline também).</summary>
+public sealed class SavedMember
+{
+    public string PeerId { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string AvatarPath { get; set; } = "";
 }
