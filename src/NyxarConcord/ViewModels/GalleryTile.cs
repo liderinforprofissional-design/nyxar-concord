@@ -32,8 +32,12 @@ public sealed class GalleryTile : ObservableObject
     public bool IsSharing
     {
         get => _isSharing;
-        set { if (SetProperty(ref _isSharing, value)) { OnPropertyChanged(nameof(ShowAvatar)); OnPropertyChanged(nameof(ShowSelfShareControl)); OnPropertyChanged(nameof(ShowViewerMute)); OnPropertyChanged(nameof(ShowResumeWatch)); } }
+        set { if (SetProperty(ref _isSharing, value)) { OnPropertyChanged(nameof(ShowAvatar)); OnPropertyChanged(nameof(ShowSelfShareControl)); OnPropertyChanged(nameof(ShowViewerMute)); OnPropertyChanged(nameof(ShowResumeWatch)); OnPropertyChanged(nameof(ShowWatchPrompt)); } }
     }
+
+    /// <summary>Na galeria: mostra "Transmitindo + Assistir" no card de quem transmite
+    /// (não é o meu card). A tela só aparece quando eu clico em Assistir (maximiza).</summary>
+    public bool ShowWatchPrompt => !IsSelf && _isSharing;
 
     /// <summary>Eu parei de assistir esta transmissão (só para mim).</summary>
     private bool _isWatchBlocked;

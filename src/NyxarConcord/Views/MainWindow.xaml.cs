@@ -294,6 +294,19 @@ public partial class MainWindow : Window
     {
         if (sender is FrameworkElement { DataContext: NyxarConcord.ViewModels.GalleryTile t }) _vm.ToggleMuteForPeer(t.PeerId);
     }
+
+    // Galeria: "Assistir" abre a transmissão (só aqui ela carrega/maximiza).
+    private void GalleryWatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: NyxarConcord.ViewModels.GalleryTile t }) _vm.WatchGalleryTile(t);
+    }
+
+    // Galeria maximizada: muta/ativa o áudio da transmissão que estou assistindo.
+    private void GalleryMaxMute_Click(object sender, RoutedEventArgs e)
+    {
+        var t = _vm.MaximizedGalleryTile;
+        if (t is not null) _vm.ToggleMuteForPeer(t.PeerId);
+    }
     private void StreamMute_Click(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: NyxarConcord.ViewModels.StreamTile t }) _vm.ToggleMuteForPeer(t.SharerId);

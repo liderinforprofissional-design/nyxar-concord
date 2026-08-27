@@ -159,6 +159,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
 
         SendCommand = new RelayCommand(_ => _ = SendAsync(), _ => CanSend());
+
+        // Verificação periódica de presença: remove "fantasmas" que saíram sem avisar.
+        _pruneTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _pruneTimer.Tick += (_, _) => PrunePresence();
+        _pruneTimer.Start();
     }
 
     // ============================================================
@@ -1392,6 +1397,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly Dictionary<string, double> _peerVolume = new();
     // Em qual sala cada peer está agora (para listar na hora ao entrar).
     private readonly Dictionary<string, string> _peerRoom = new();
+    // Última vez (UTC) que ouvimos algo de cada peer — para remover "fantasmas"
+    // que saíram/fecharam o app sem avisar (sem heartbeat = removido no timeout).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _peerLastSeen = new();
+    private DispatcherTimer? _pruneTimer;
 
     // Aplica os estados conhecidos (mudo/foto/volume) a um membro recém-criado.
     private void ApplyMuteState(RoomMember m)
@@ -1856,6 +1865,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (tile is null || !tile.IsSharing) return;
         MaximizedGalleryTile = _maxTile != tile ? tile : null;
+    }
+
+    /// <summary>Botão "Assistir" no card da galeria: só aqui a transmissão abre
+    /// (antes ela carregava sozinha). Garante que os quadros fluam e maximiza a tela.</summary>
+    public void WatchGalleryTile(GalleryTile? tile)
+    {
+        if (tile is null || !tile.IsSharing) return;
+        ResumeWatchingStream(tile.PeerId); // libera vídeo + áudio da transmissão
+        MaximizedGalleryTile = tile;       // abre a transmissão em tela cheia do card
     }
 
     public void RestoreGallery() => MaximizedGalleryTile = null;
@@ -2454,6 +2472,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void OnRelayHello(string id, string name, string handle)
     {
         Diag.Log("HELLO", $"{name}/{id}");
+        _peerLastSeen[id] = DateTime.UtcNow;
         Application.Current.Dispatcher.Invoke(() =>
         {
             UpsertFriend(id, name, handle, _avatars.GetValueOrDefault(id), online: true);
@@ -2550,6 +2569,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OnRelayMessage(string fromId, ChatMessage msg)
     {
+        _peerLastSeen[fromId] = DateTime.UtcNow; // ouvi algo dessa pessoa: continua presente
         var peer = GetRelayPeer(fromId, msg.SenderName);
         // Só é chat de verdade quando NÃO há sinal. Voz, tela, presença de sala e
         // arquivos chegam com Signal setado (o Kind pode vir como Text pelo relay),
@@ -2797,6 +2817,47 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             bool active = s.Channels.Any(c => c.IsAudio && activeRooms.Contains(c.Id));
             if (s.HasVoiceActivity != active) s.HasVoiceActivity = active;
+        }
+    }
+
+    // Remove "fantasmas": quem entrou numa sala de voz mas parou de dar sinal de
+    // vida (saiu/fechou o app/caiu a rede sem avisar). Cada participante manda um
+    // heartbeat a cada 2s; sem sinal por vários segundos, é removido da lista.
+    private void PrunePresence()
+    {
+        if (_currentServer is null) return;
+        var now = DateTime.UtcNow;
+        const double TimeoutSec = 8; // ~4 heartbeats perdidos
+        bool changed = false;
+
+        foreach (var ch in _currentServer.Channels)
+        {
+            for (int i = ch.Members.Count - 1; i >= 0; i--)
+            {
+                var m = ch.Members[i];
+                if (m.IsSelf) continue;
+                if (!_peerLastSeen.TryGetValue(m.PeerId, out var seen))
+                {
+                    // Ainda não ouvi nada dessa pessoa: dou um crédito inicial.
+                    _peerLastSeen[m.PeerId] = now;
+                    continue;
+                }
+                if ((now - seen).TotalSeconds <= TimeoutSec) continue;
+
+                // Sem sinal há tempo demais: trata como saída.
+                ch.Members.RemoveAt(i);
+                if (_peerRoom.TryGetValue(m.PeerId, out var r) && r == ch.Id) _peerRoom.Remove(m.PeerId);
+                if (_currentRoom?.Id == ch.Id) { SetMemberSharing(m.PeerId, false); RemoveTile(m.PeerId); }
+                changed = true;
+                Diag.Log("PRESENCE", $"removido por timeout: {m.DisplayName}/{m.PeerId}");
+            }
+        }
+
+        if (changed)
+        {
+            OnPropertyChanged(nameof(ServerMembers));
+            if (_currentRoom is not null) UpdateVoiceTargets();
+            RefreshServerVoiceBadges();
         }
     }
 

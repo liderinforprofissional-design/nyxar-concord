@@ -1249,29 +1249,50 @@
                                     <Border Margin="6" CornerRadius="10" Background="{Binding Background}" Cursor="Hand"
                                             ClipToBounds="True" MouseLeftButtonUp="GalleryTile_Click" Tag="{Binding}">
                                         <Grid>
-                                            <!-- Fundo preto atrás da transmissão (moldura definida) -->
-                                            <Border Background="#05070E"
-                                                    Visibility="{Binding ShowAvatar, Converter={StaticResource InverseBoolToVis}}" />
-                                            <!-- Tela transmitida INTEIRA dentro do card (sem cortar) -->
-                                            <Image Source="{Binding Frame}" Stretch="Uniform" Margin="2"
-                                                   RenderOptions.BitmapScalingMode="LowQuality"
-                                                   Visibility="{Binding ShowAvatar, Converter={StaticResource InverseBoolToVis}}" />
-                                            <!-- Avatar centralizado -->
-                                            <Grid Width="92" Height="92" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                  Visibility="{Binding ShowAvatar, Converter={StaticResource BoolToVis}}">
-                                                <Border CornerRadius="46" Background="{StaticResource Brand.Gradient}">
+                                            <!-- Avatar centralizado (a galeria NÃO carrega a tela automaticamente;
+                                                 a transmissão só abre ao clicar em "Assistir"). Grid maior que o
+                                                 anel para o círculo verde de "falando" aparecer completo. -->
+                                            <Grid Width="104" Height="104" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Border Width="92" Height="92" CornerRadius="46" Background="{StaticResource Brand.Gradient}"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding Initials}" Foreground="White" FontWeight="Bold"
                                                                FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 </Border>
-                                                <Ellipse Width="92" Height="92">
+                                                <Ellipse Width="92" Height="92" HorizontalAlignment="Center" VerticalAlignment="Center">
                                                     <Ellipse.Fill>
                                                         <ImageBrush ImageSource="{Binding AvatarPath, Converter={StaticResource PathToImage}}"
                                                                     Stretch="UniformToFill" />
                                                     </Ellipse.Fill>
                                                 </Ellipse>
-                                                <Ellipse Width="98" Height="98" Stroke="{StaticResource Online}" StrokeThickness="3"
+                                                <Ellipse Width="100" Height="100" Stroke="{StaticResource Online}" StrokeThickness="3"
+                                                         HorizontalAlignment="Center" VerticalAlignment="Center"
                                                          Visibility="{Binding IsSpeaking, Converter={StaticResource BoolToVis}}" />
                                             </Grid>
+
+                                            <!-- "Transmitindo" + botão Assistir (card de quem transmite) -->
+                                            <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,44"
+                                                        Visibility="{Binding ShowWatchPrompt, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock Text="está transmitindo" Foreground="{StaticResource Text.Muted}"
+                                                           FontSize="11" HorizontalAlignment="Center" Margin="0,0,0,6" />
+                                                <Button Cursor="Hand" Click="GalleryWatch_Click" Tag="{Binding}" HorizontalAlignment="Center">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border x:Name="wb" Background="{StaticResource Accent}" CornerRadius="10" Padding="16,7">
+                                                                <StackPanel Orientation="Horizontal">
+                                                                    <Path Data="{StaticResource Icon.Eye}" Width="15" Height="15" Stretch="Uniform"
+                                                                          Fill="White" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                                                    <TextBlock Text="Assistir" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter TargetName="wb" Property="Background" Value="{StaticResource Accent.Hover}" />
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </StackPanel>
                                             <!-- Nome + ícones de mudo -->
                                             <Border VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="10"
                                                     Background="#80000000" CornerRadius="6" Padding="8,3">
@@ -1318,75 +1339,6 @@
                                                           Visibility="{Binding DataContext.IsShareAudioMuted, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVis}}" />
                                                 </Grid>
                                             </Button>
-                                            <!-- Headset para quem ASSISTE: muta a transmissão do outro (verde ouvindo / vermelho mudo) -->
-                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
-                                                    Cursor="Hand" Click="GalleryMute_Click" ToolTip="Mutar/ativar o áudio desta transmissão"
-                                                    Visibility="{Binding ShowViewerMute, Converter={StaticResource BoolToVis}}">
-                                                <Button.Template>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border x:Name="gv" Width="40" Height="40" CornerRadius="11"
-                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                        </Border>
-                                                        <ControlTemplate.Triggers>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter TargetName="gv" Property="Background" Value="{StaticResource Bg.Hover}" />
-                                                            </Trigger>
-                                                        </ControlTemplate.Triggers>
-                                                    </ControlTemplate>
-                                                </Button.Template>
-                                                <Grid>
-                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Online}"
-                                                          Data="{StaticResource Icon.Headset}"
-                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource InverseBoolToVis}}" />
-                                                    <Path Width="19" Height="19" Stretch="Uniform" Fill="{StaticResource Badge}"
-                                                          Data="{StaticResource Icon.HeadsetOff}"
-                                                          Visibility="{Binding IsMutedByMe, Converter={StaticResource BoolToVis}}" />
-                                                </Grid>
-                                            </Button>
-                                            <!-- Espectador: parar de assistir esta transmissão (só para mim) -->
-                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,10,58,0"
-                                                    Cursor="Hand" Click="StopWatch_Click" Tag="{Binding}"
-                                                    ToolTip="Parar de assistir (só para você)"
-                                                    Visibility="{Binding ShowViewerMute, Converter={StaticResource BoolToVis}}">
-                                                <Button.Template>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border x:Name="gsw" Width="40" Height="40" CornerRadius="11"
-                                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                        </Border>
-                                                        <ControlTemplate.Triggers>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter TargetName="gsw" Property="Background" Value="{StaticResource Bg.Hover}" />
-                                                            </Trigger>
-                                                        </ControlTemplate.Triggers>
-                                                    </ControlTemplate>
-                                                </Button.Template>
-                                                <Path Data="{StaticResource Icon.EyeOff}" Width="19" Height="19"
-                                                      Stretch="Uniform" Fill="White"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            </Button>
-                                            <!-- Espectador: voltar a assistir (aparece quando parei de assistir) -->
-                                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10"
-                                                    Cursor="Hand" Click="ResumeWatch_Click" Tag="{Binding}"
-                                                    ToolTip="Voltar a assistir"
-                                                    Visibility="{Binding ShowResumeWatch, Converter={StaticResource BoolToVis}}">
-                                                <Button.Template>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border x:Name="grw" Width="40" Height="40" CornerRadius="11"
-                                                                Background="{StaticResource Accent}" BorderThickness="0">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                        </Border>
-                                                        <ControlTemplate.Triggers>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter TargetName="grw" Property="Background" Value="{StaticResource Bg.Hover}" />
-                                                            </Trigger>
-                                                        </ControlTemplate.Triggers>
-                                                    </ControlTemplate>
-                                                </Button.Template>
-                                                <Path Data="{StaticResource Icon.Eye}" Width="20" Height="20"
-                                                      Stretch="Uniform" Fill="White" />
-                                            </Button>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -1402,6 +1354,31 @@
                                     Background="#B0000000" CornerRadius="6" Padding="10,5">
                                 <TextBlock Text="{Binding MaximizedGalleryTile.Name}" Foreground="White" />
                             </Border>
+                            <!-- Mutar o áudio da transmissão que estou assistindo -->
+                            <Button VerticalAlignment="Top" HorizontalAlignment="Right" Margin="16"
+                                    Cursor="Hand" Click="GalleryMaxMute_Click" ToolTip="Mutar/ativar o áudio desta transmissão">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="gmm" Width="42" Height="42" CornerRadius="12"
+                                                Background="{StaticResource Bg.Card}" BorderBrush="{StaticResource Border.Soft}" BorderThickness="1">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="gmm" Property="Background" Value="{StaticResource Bg.Hover}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Grid>
+                                    <Path Width="20" Height="20" Stretch="Uniform" Fill="{StaticResource Online}"
+                                          Data="{StaticResource Icon.Headset}"
+                                          Visibility="{Binding MaximizedGalleryTile.IsMutedByMe, Converter={StaticResource InverseBoolToVis}}" />
+                                    <Path Width="20" Height="20" Stretch="Uniform" Fill="{StaticResource Badge}"
+                                          Data="{StaticResource Icon.HeadsetOff}"
+                                          Visibility="{Binding MaximizedGalleryTile.IsMutedByMe, Converter={StaticResource BoolToVis}}" />
+                                </Grid>
+                            </Button>
                         </Grid>
                     </Grid>
 
