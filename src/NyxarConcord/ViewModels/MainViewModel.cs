@@ -137,6 +137,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _relay.PeerHello += OnRelayHello;
         _relay.PeerLeft += OnRelayLeft;
         _relay.MessageReceived += OnRelayMessage;
+        _relay.Reconnected += OnRelayReconnected;
 
         _webVoice = new WebRtcVoice(SelfId, _voice, _relay) { VideoOnly = true };
         _webVoice.VideoFrameDecoded += OnWebRtcVideoFrame;
@@ -2417,6 +2418,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!string.IsNullOrEmpty(name)) p.DisplayName = name;
         if (!string.IsNullOrEmpty(handle)) p.Handle = handle;
         return p;
+    }
+
+    // Reconectou ao relay depois de uma queda (internet caiu / mudou de rede):
+    // reanuncia minha presença e minha transmissão, e reinicia a mídia WebRTC,
+    // para os pares voltarem a se enxergar sem precisar reabrir o app.
+    private void OnRelayReconnected()
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            Diag.Log("RELAY", "Reconectado — reanunciando presença e transmissão.");
+            AnnounceMicState();
+            if (_currentServer is not null) AnnounceProfile(null);
+
+            if (_currentRoom?.IsAudio == true)
+            {
+                // Reanuncia que estou na sala de voz (com o início da call).
+                NotifyServer(RoomJoinMsg(_currentRoom));
+
+                // Reinicia a mídia WebRTC (as conexões antigas morreram com a rede).
+                if (_useWebRtcVoice || _useWebRtcVideo)
+                {
+                    _webVoice.Stop();
+                    _ = _webVoice.StartAsync(_currentRoom.Id, ServerPeers().Select(p => p.Id).ToList());
+                }
+
+                // Se eu estava transmitindo, reavisa o início da transmissão para
+                // os outros recriarem a minha tela.
+                if (IsSharingScreen)
+                    NotifyServer(new ChatMessage { Signal = SignalType.ScreenShareStart, RoomId = _currentRoom.Id });
+            }
+        });
     }
 
     private void OnRelayHello(string id, string name, string handle)

@@ -25,6 +25,8 @@ public sealed class WorkerRelay : IDisposable
     private ClientWebSocket? _ws;
     private CancellationTokenSource? _cts;
     private string? _room;
+    private volatile bool _closing;   // true quando o fechamento é intencional (não reconectar)
+    private int _reconnecting;         // 0/1 — garante um único laço de reconexão
 
     // Contadores de mídia (voz/tela) para o diagnóstico saber se a mídia cruza a rede.
     private int _txVoice, _txScreen, _rxVoice, _rxScreen;
@@ -38,6 +40,8 @@ public sealed class WorkerRelay : IDisposable
     public event Action<string, string, string>? PeerHello;
     /// <summary>Um par saiu da sala.</summary>
     public event Action<string>? PeerLeft;
+    /// <summary>Reconectou ao relay depois de uma queda (internet caiu / mudou de rede).</summary>
+    public event Action? Reconnected;
 
     public WorkerRelay(string selfId, string selfName, string handle)
     {
@@ -51,6 +55,7 @@ public sealed class WorkerRelay : IDisposable
         if (_room == room && IsConnected) return;
         await DisconnectAsync();
 
+        _closing = false;
         _room = room;
         _cts = new CancellationTokenSource();
         _ws = new ClientWebSocket();
@@ -93,7 +98,7 @@ public sealed class WorkerRelay : IDisposable
 
     private async Task SendAsync(ChatMessage m, bool lowPriority = false)
     {
-        if (_ws is not { State: WebSocketState.Open }) return;
+        if (_ws is not { State: WebSocketState.Open }) { TriggerReconnect(); return; }
         // Loga tudo, menos o que é muito frequente (voz/tela/pedaços de arquivo),
         // mas conta a mídia periodicamente pra sabermos se ela está saindo.
         if (m.Signal is SignalType.VoiceFrame or SignalType.ScreenAudioFrame) { if (++_txVoice % 100 == 0) Diag.Log("MEDIA-TX", $"voz enviada x{_txVoice}"); }
@@ -110,7 +115,7 @@ public sealed class WorkerRelay : IDisposable
         }
         else await _sendLock.WaitAsync();
         try { await _ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None); }
-        catch { }
+        catch { TriggerReconnect(); }
         finally { _sendLock.Release(); }
     }
 
@@ -136,6 +141,55 @@ public sealed class WorkerRelay : IDisposable
             }
         }
         catch { /* conexão caiu */ }
+        // Saiu do laço: se não foi fechamento intencional, tenta reconectar.
+        if (!_closing) TriggerReconnect();
+    }
+
+    // Dispara (uma única vez) o laço de reconexão automática.
+    private void TriggerReconnect()
+    {
+        if (_closing || _room is null) return;
+        if (System.Threading.Interlocked.Exchange(ref _reconnecting, 1) == 1) return;
+        _ = ReconnectLoopAsync();
+    }
+
+    // Reconecta ao relay com backoff. Ao reconectar, reapresenta-se (Hello) e avisa a UI.
+    private async Task ReconnectLoopAsync()
+    {
+        int delayMs = 1000;
+        try
+        {
+            while (!_closing && _room is not null && !IsConnected)
+            {
+                try { await Task.Delay(delayMs); } catch { }
+                if (_closing || _room is null || IsConnected) break;
+
+                try
+                {
+                    var old = _ws;
+                    try { old?.Abort(); old?.Dispose(); } catch { }
+
+                    var cts = new CancellationTokenSource();
+                    var ws = new ClientWebSocket();
+                    var uri = new Uri($"{WsBase}?room={Uri.EscapeDataString(_room!)}&peer={Uri.EscapeDataString(_selfId)}");
+                    Diag.Log("RELAY", "Tentando reconectar ao relay…");
+                    await ws.ConnectAsync(uri, cts.Token);
+                    _cts = cts;
+                    _ws = ws;
+                    _ = ReceiveLoopAsync(cts.Token);
+                    await SendHelloAsync();       // me reapresento para a sala
+                    Diag.Log("RELAY", "Reconectado ao relay.");
+                    Reconnected?.Invoke();         // a UI reanuncia presença/transmissão
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Diag.Log("RELAY", $"Reconexão falhou: {ex.Message}");
+                    delayMs = Math.Min(delayMs * 2, 5000); // backoff até 5s
+                }
+            }
+        }
+        finally { _reconnecting = 0; }
     }
 
     private void Handle(byte[] data)
@@ -177,6 +231,7 @@ public sealed class WorkerRelay : IDisposable
 
     public async Task DisconnectAsync()
     {
+        _closing = true; // fechamento intencional: não reconectar
         _cts?.Cancel();
         if (_ws is not null)
         {
@@ -189,6 +244,7 @@ public sealed class WorkerRelay : IDisposable
 
     public void Dispose()
     {
+        _closing = true;
         _cts?.Cancel();
         _ws?.Dispose();
         _sendLock.Dispose();
