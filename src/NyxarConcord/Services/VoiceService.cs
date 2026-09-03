@@ -356,7 +356,7 @@ public sealed class VoiceService : IDisposable
                 buf = new BufferedWaveProvider(_format)
                 {
                     DiscardOnBufferOverflow = true,
-                    BufferDuration = TimeSpan.FromSeconds(3)
+                    BufferDuration = TimeSpan.FromSeconds(2)
                 };
                 _inputs[key] = buf;
                 var vsp = new NAudio.Wave.SampleProviders.VolumeSampleProvider(buf.ToSampleProvider())
@@ -366,6 +366,11 @@ public sealed class VoiceService : IDisposable
                 _vol[key] = vsp;
                 _mixer.AddMixerInput(vsp);
             }
+            // Anti-atraso: se a fila acumulou (a voz vai ficando "atrasada", chegando a
+            // vários segundos), descarto o atraso e mantenho só o que é recente. Isso
+            // segura a latência baixa em vez de deixar crescer até ~3s.
+            double maxLatencyMs = isScreen ? 600 : 300;
+            if (buf.BufferedDuration.TotalMilliseconds > maxLatencyMs) buf.ClearBuffer();
             buf.AddSamples(pcm, 0, pcm.Length);
         }
     }

@@ -66,7 +66,11 @@ public enum SignalType
     ProfileRequest,
     /// <summary>Lista de canais (salas) do servidor — o dono envia quando cria/exclui
     /// uma sala, para que ela apareça para todos. Canais em JSON no campo Payload.</summary>
-    ServerChannels
+    ServerChannels,
+    /// <summary>Um espectador começou a assistir a MINHA transmissão (avisa o dono da tela).</summary>
+    WatchStart,
+    /// <summary>Um espectador parou de assistir a MINHA transmissão.</summary>
+    WatchStop
 }
 
 /// <summary>

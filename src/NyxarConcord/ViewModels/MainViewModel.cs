@@ -932,6 +932,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (self is not null) _currentRoom.Members.Remove(self);
             NotifyServer(new ChatMessage { Signal = SignalType.RoomLeave, RoomId = _currentRoom.Id, ServerId = _currentRoom.ServerId });
         }
+        // Avisa cada transmissor que parei de assistir (some o som/aviso "está assistindo").
+        ClearWatching();
         // Sai da galeria ao deixar a call.
         GalleryView = false;
         MaximizedGalleryTile = null;
@@ -1827,6 +1829,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         if (!HasStreams) return;
         _inStage = true;
         SetAllScreenAudio(false); // entrando no palco: ouço o áudio das transmissões
+        // Avisa cada transmissor que comecei a assistir.
+        if (_currentRoom is not null)
+            foreach (var m in _currentRoom.Members)
+                if (!m.IsSelf && m.IsSharingScreen) SetWatching(m.PeerId, true);
         RaiseStageState();
     }
 
@@ -1835,6 +1841,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _inStage = false;
         MaximizedStream = null;
         SetAllScreenAudio(true);  // saindo do palco: muta o áudio das transmissões
+        ClearWatching();          // avisa que parei de assistir todos
         RaiseStageState();
         StoppedWatching?.Invoke();
     }
@@ -1855,6 +1862,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // --- Parar de assistir UMA transmissão (só para mim; a pessoa continua transmitindo) ---
     // Diferente do "encerrar" do dono, que para para todos.
     private readonly HashSet<string> _watchBlocked = new();
+
+    // Transmissões que EU estou assistindo agora — para avisar o dono da tela
+    // (som de "alguém começou/parou de assistir você").
+    private readonly HashSet<string> _watchingPeers = new();
+
+    // Avisa o transmissor que comecei/parei de assistir a tela dele.
+    private void SetWatching(string peerId, bool watching)
+    {
+        if (string.IsNullOrEmpty(peerId) || peerId == SelfId) return;
+        if (watching) { if (!_watchingPeers.Add(peerId)) return; }
+        else { if (!_watchingPeers.Remove(peerId)) return; }
+        if (_relay.IsConnected)
+            _ = _relay.SendToPeerAsync(peerId, new ChatMessage
+            {
+                Signal = watching ? SignalType.WatchStart : SignalType.WatchStop,
+                RoomId = _currentRoom?.Id
+            });
+    }
+
+    // Para de avisar todos que eu assistia (ao sair da sala/parar de assistir tudo).
+    private void ClearWatching()
+    {
+        foreach (var id in _watchingPeers.ToList()) SetWatching(id, false);
+    }
 
     /// <summary>True se eu escolhi não assistir a transmissão desta pessoa.</summary>
     public bool IsWatchBlocked(string peerId) => _watchBlocked.Contains(peerId);
@@ -1952,20 +1983,27 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public void WatchGalleryTile(GalleryTile? tile)
     {
         if (tile is null || !tile.IsSharing) return;
-        // Muta o áudio de quem eu estava assistindo antes (se era outra pessoa).
+        // Deixo de assistir quem eu via antes (muta o áudio e avisa a pessoa).
         if (_maxTile is not null && _maxTile != tile && !_maxTile.IsSelf)
+        {
             _voice.SetScreenMuted(_maxTile.PeerId, true);
+            SetWatching(_maxTile.PeerId, false);
+        }
         MaximizedGalleryTile = tile;                    // marca como "assistindo" ANTES (evita corrida com o mudo)
         ResumeWatchingStream(tile.PeerId);              // libera vídeo
-        if (!tile.IsSelf) _voice.SetScreenMuted(tile.PeerId, false); // e o áudio da transmissão
+        if (!tile.IsSelf)
+        {
+            _voice.SetScreenMuted(tile.PeerId, false);  // e o áudio da transmissão
+            SetWatching(tile.PeerId, true);             // avisa o transmissor: "comecei a assistir"
+        }
     }
 
     public void RestoreGallery()
     {
         var t = _maxTile;
         MaximizedGalleryTile = null;
-        // Parei de assistir: muta o áudio da transmissão que estava aberta.
-        if (t is not null && !t.IsSelf) _voice.SetScreenMuted(t.PeerId, true);
+        // Parei de assistir: muta o áudio da transmissão que estava aberta e avisa a pessoa.
+        if (t is not null && !t.IsSelf) { _voice.SetScreenMuted(t.PeerId, true); SetWatching(t.PeerId, false); }
     }
 
     private void RaiseGalleryState()
@@ -2767,8 +2805,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     MarkShareStopped(peer.Id);       // ignora quadros de vídeo atrasados dela
                     SetMemberSharing(peer.Id, false);
                     SetWatchBlocked(peer.Id, false); // limpa meu bloqueio local
+                    _watchingPeers.Remove(peer.Id);  // ela parou; não preciso avisar "saí"
                     RemoveTile(peer.Id);
                     _sfx.ScreenShareStop();
+                    break;
+                case SignalType.WatchStart:          // alguém começou a assistir a MINHA tela
+                    if (IsSharingScreen)
+                    {
+                        _sfx.WatcherJoined();
+                        Messages.Add(SystemMessage($"👁 {peer.DisplayName} começou a assistir sua transmissão."));
+                    }
+                    break;
+                case SignalType.WatchStop:           // alguém parou de assistir a MINHA tela
+                    if (IsSharingScreen) _sfx.WatcherLeft();
                     break;
                 case SignalType.ScreenFrame:
                     if (!string.IsNullOrEmpty(msg.Text) && _currentRoom?.Id == msg.RoomId)

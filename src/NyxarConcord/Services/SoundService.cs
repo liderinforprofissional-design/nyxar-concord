@@ -29,6 +29,8 @@ public sealed class SoundService
     public void ScreenShareStop() => Play(Mix(                                   // fim: desce, com corpo
                                           Arp(new[] { 783.99, 587.33, 392.00 }, 520, 130, 0.20),
                                           Bell(196.00, 620, 0.13)));             // G3 grave = corpo
+    public void WatcherJoined()   => Play(Arp(new[] { 659.25, 987.77, 1318.51 }, 300, 90)); // alguém começou a assistir você
+    public void WatcherLeft()     => Play(Arp(new[] { 987.77, 659.25 }, 280, 105));          // alguém saiu da sua transmissão
     public void FileSent()        => Play(Drop(900, 1500, 130, 0.22));            // "whoosh" curto pra cima
     public void FileReceived()    => Play(Mix(Bell(659, 260, 0.18), Delay(Bell(987.77, 260, 0.18), 60)));
     public void MuteOn()          => Play(Drop(620, 330, 110, 0.26));             // desce (mutou)
